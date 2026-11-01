@@ -2,7 +2,8 @@
 
 import { useEffect, type ReactNode } from "react";
 import { ExportButton } from "./ExportButton";
-import { startEditor, useEditorStore, useWallpaper } from "./editorStore";
+import { startEditor, useEditor, useEditorStore, useSettings, useView, useWallpaper } from "./editorStore";
+import { GuideSettings } from "./GuideSettings";
 import { WallpaperCanvas } from "./WallpaperCanvas";
 
 export function EditorApp() {
@@ -25,14 +26,18 @@ export function EditorApp() {
 }
 
 function LeftSidebar() {
+  const editor = useEditor();
   const wallpaper = useWallpaper();
+  const settings = useSettings();
 
   return (
     <aside className="flex min-h-0 flex-col border-r border-neutral-800 bg-neutral-900">
       <header className="border-b border-neutral-800 px-4 py-3">
         <AppTitle />
       </header>
-      <div className="flex-1" />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {editor && settings && <GuideSettings editor={editor} settings={settings} />}
+      </div>
       <footer className="border-t border-neutral-800 p-4">
         <ExportButton wallpaper={wallpaper} />
       </footer>
@@ -43,15 +48,17 @@ function LeftSidebar() {
 function CanvasArea() {
   const phase = useEditorStore((state) => state.phase);
   const wallpaper = useWallpaper();
+  const view = useView();
+  const settings = useSettings();
   const error = useEditorStore((state) => state.error);
 
   if (phase === "failed") {
     return <CenteredNote>{error}</CenteredNote>;
   }
-  if (!wallpaper) {
+  if (!wallpaper || !view || !settings) {
     return <CenteredNote>Loading…</CenteredNote>;
   }
-  return <WallpaperCanvas wallpaper={wallpaper} />;
+  return <WallpaperCanvas wallpaper={wallpaper} view={view} settings={settings} />;
 }
 
 function Inspector() {
