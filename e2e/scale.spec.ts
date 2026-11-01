@@ -13,13 +13,16 @@ import {
 
 /** The starting wallpaper's width in wallpaper px. */
 const WALLPAPER_WIDTH = 1920;
+/** The inspector shows the font size to one decimal place, so an exact size reads within this of it. */
+const SHOWN_TO_ONE_DECIMAL = 0.06;
 /**
- * How close a snapped edge's measured box lands to its target, in wallpaper
- * px. The Editor's font size is exact, but Chromium resolves canvas font sizes
- * to 0.01 px, so OCR A's measured width moves in steps of about 0.07 px (and
- * the inspector rounds to 0.01).
+ * How far a line's measured width can stray from proportional to its font
+ * size, per glyph, at each size: Chromium on Linux rounds each glyph's advance
+ * to a whole pixel (on macOS advances stay fractional).
  */
-const SNAPPED = 0.1;
+const ADVANCE_ROUNDING = 0.5;
+/** The starting block's longest line, DISCIPLINE, is 10 glyphs long. */
+const LONGEST_LINE_GLYPHS = 10;
 
 type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
@@ -36,16 +39,30 @@ async function readBlock(page: Page) {
   };
 }
 
-/** Where the selected block's right edge is, as the inspector shows it. */
-async function rightEdge(page: Page) {
-  const { x, width } = await readBlock(page);
-  return x + width;
+type Block = Awaited<ReturnType<typeof readBlock>>;
+
+/**
+ * The font size at which a block scaled from `start` by its top-right handle
+ * has its right edge at `right`: the old size × the new width ÷ the old width.
+ * Snapping is checked by this size, which the Editor works out exactly on
+ * every platform, rather than by the measured box. Chromium on Linux rounds
+ * each glyph's advance to a whole pixel, so a measured edge can land a few
+ * px off a guide there. src/editor/scaling.test.ts checks the box itself,
+ * with a deterministic measurer.
+ */
+function fontSizeReaching(start: Block, right: number) {
+  return (start.fontSize * (right - start.x)) / start.width;
+}
+
+/** How far the selected block's font size is from `expected`, as the inspector shows it. */
+async function fontSizeOff(page: Page, expected: number) {
+  return Math.abs((await readBlock(page)).fontSize - expected);
 }
 
 /**
  * Hides the grid, so the vertical centre line is the only target near the
- * starting block's right edge as it grows, then selects the block and moves it
- * to X 300, clear of the safe-area edge. Returns the block as it is then.
+ * starting block's right edge as it scales, then selects the block and moves
+ * it to X 300, clear of the safe-area edge. Returns the block as it is then.
  */
 async function selectBlockAtX300(page: Page) {
   await page.getByRole("checkbox", { name: "Show grid" }).uncheck();
@@ -85,8 +102,11 @@ test("dragging a corner handle scales the block about the opposite corner, and o
     await expect.poll(async () => (await readBlock(page)).fontSize).toBeGreaterThan(110);
     const after = await readBlock(page);
     const factor = after.fontSize / before.fontSize;
-    expect(after.width / before.width).toBeCloseTo(factor, 2);
+    // The height is lines × line height × font size, so it scales exactly.
     expect(after.height / before.height).toBeCloseTo(factor, 2);
+    // The width is measured, so it is proportional only to within each glyph's advance rounding at both sizes.
+    const rounding = LONGEST_LINE_GLYPHS * ADVANCE_ROUNDING * (1 + factor);
+    expect(Math.abs(after.width - before.width * factor)).toBeLessThanOrEqual(rounding);
   });
 
   await test.step("the opposite (bottom-left) corner stayed where it was", async () => {
@@ -108,10 +128,13 @@ test("dragging a corner handle scales the block about the opposite corner, and o
   });
 });
 
-test("a scaled edge snaps exactly onto the centre line, with a smart guide until the drop", async ({ page }) => {
+test("a scaled edge snaps onto the centre line at exactly the font size that puts it there, with a smart guide until the drop", async ({
+  page,
+}) => {
   await page.goto("/");
   const guides = page.getByTestId("guides");
   const before = await selectBlockAtX300(page);
+  const onCentreLine = fontSizeReaching(before, 960);
 
   // Along the box's diagonal, so the corner follows the pointer, to 2 screen px short of the centre line.
   const scale = await screenPxPerWallpaperPx(wallpaperCanvas(page));
@@ -125,29 +148,28 @@ test("a scaled edge snaps exactly onto the centre line, with a smart guide until
     { steps: 6 },
   );
 
-  await test.step("while scaling, the right edge is exactly on the centre line and a smart guide shows", async () => {
-    await expect.poll(async () => Math.abs((await rightEdge(page)) - 960)).toBeLessThanOrEqual(SNAPPED);
+  await test.step("while scaling, the font size is exactly the one that puts the right edge on the centre line, and a smart guide shows", async () => {
+    await expect.poll(() => fontSizeOff(page, onCentreLine)).toBeLessThanOrEqual(SHOWN_TO_ONE_DECIMAL);
     await expect.poll(() => smartGuidePixels(guides)).toBeGreaterThan(100);
+    expect((await readBlock(page)).x).toBe(300);
   });
 
   await test.step("pressing Ctrl unsnaps the edge at once, back under the pointer, and letting go re-snaps it", async () => {
+    // Under the pointer, 2 screen px short of the centre line, the font size is this much smaller (about 0.6 px).
+    // Half of it leaves room for the pointer's whole-pixel steps and the inspector's rounding.
+    const shortBy = onCentreLine - fontSizeReaching(before, 960 - 2 / scale);
     await page.keyboard.down("Control");
-    await expect.poll(() => rightEdge(page)).toBeLessThan(960 - 1);
+    await expect.poll(async () => onCentreLine - (await readBlock(page)).fontSize).toBeGreaterThan(shortBy / 2);
     expect(await smartGuidePixels(guides)).toBe(0);
     await page.keyboard.up("Control");
-    await expect.poll(async () => Math.abs((await rightEdge(page)) - 960)).toBeLessThanOrEqual(SNAPPED);
-  });
-
-  await test.step("the font size is the old size × the new width ÷ the old width, to one decimal", async () => {
-    const after = await readBlock(page);
-    expect(after.x).toBe(300);
-    expect(Math.abs(after.fontSize - (96 * (960 - 300)) / before.width)).toBeLessThanOrEqual(0.06);
+    await expect.poll(() => fontSizeOff(page, onCentreLine)).toBeLessThanOrEqual(SHOWN_TO_ONE_DECIMAL);
+    await expect.poll(() => smartGuidePixels(guides)).toBeGreaterThan(100);
   });
 
   await test.step("dropping keeps the size and removes the smart guide; one undo puts it back", async () => {
     await page.mouse.up();
     await expect.poll(() => smartGuidePixels(guides)).toBe(0);
-    expect(Math.abs((await rightEdge(page)) - 960)).toBeLessThanOrEqual(SNAPPED);
+    expect(await fontSizeOff(page, onCentreLine)).toBeLessThanOrEqual(SHOWN_TO_ONE_DECIMAL);
     await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(() => readBlock(page)).toEqual(before);
   });
@@ -164,6 +186,7 @@ for (const deviceScaleFactor of [1, 2]) {
     }) => {
       await page.goto("/");
       const before = await selectBlockAtX300(page);
+      const onCentreLine = fontSizeReaching(before, 960);
 
       const zoom = await test.step("zoom in on the top-right handle with Ctrl+scroll, which pans to keep it under the pointer", async () => {
         const fitted = await handleOnScreen(page, "top-right");
@@ -198,14 +221,17 @@ for (const deviceScaleFactor of [1, 2]) {
       await test.step("9 screen px short, which is in reach at the fitted zoom but not at this one, it doesn't snap", async () => {
         const pointer = pointerFor(9);
         await page.mouse.move(pointer.x, pointer.y, { steps: 6 });
-        await expect.poll(async () => Math.abs((await rightEdge(page)) - (960 - 9 / zoom))).toBeLessThanOrEqual(1);
+        // Under the pointer, the font size is this much smaller than on the centre line (about 0.6 px). Half of it
+        // leaves room for the pointer's whole-pixel steps and the inspector's rounding.
+        const shortBy = onCentreLine - fontSizeReaching(before, 960 - 9 / zoom);
+        await expect.poll(async () => onCentreLine - (await readBlock(page)).fontSize).toBeGreaterThan(shortBy / 2);
         expect(await smartGuidePixels(page.getByTestId("guides"))).toBe(0);
       });
 
-      await test.step("2 screen px short, it snaps exactly onto the centre line, with the opposite corner fixed", async () => {
+      await test.step("2 screen px short, it snaps onto the centre line at exactly the font size that puts it there, with the opposite corner fixed", async () => {
         const pointer = pointerFor(2);
         await page.mouse.move(pointer.x, pointer.y, { steps: 2 });
-        await expect.poll(async () => Math.abs((await rightEdge(page)) - 960)).toBeLessThanOrEqual(SNAPPED);
+        await expect.poll(() => fontSizeOff(page, onCentreLine)).toBeLessThanOrEqual(SHOWN_TO_ONE_DECIMAL);
         await expect.poll(() => smartGuidePixels(page.getByTestId("guides"))).toBeGreaterThan(100);
         const after = await readBlock(page);
         expect(after.x).toBe(300);
