@@ -16,10 +16,11 @@ const NUDGE_KEYS: Partial<Record<string, NudgeDirection>> = {
 
 /**
  * The editor's keyboard shortcuts, listened for on the whole window:
- * Cmd/Ctrl+Z undoes and Cmd/Ctrl+Shift+Z redoes, arrow keys nudge the
- * selected block 1 px (10 px with Shift), and Escape deselects. They're left
- * to the browser in fields that use those keys themselves, so undo in a text
- * field still undoes typing and arrows still move its caret.
+ * Cmd/Ctrl+Z undoes and Cmd/Ctrl+Shift+Z redoes, Cmd/Ctrl+D duplicates the
+ * selected block, Delete or Backspace deletes it, arrow keys nudge it 1 px
+ * (10 px with Shift), and Escape deselects. They're left to the browser in
+ * fields that use those keys themselves, so undo in a text field still undoes
+ * typing, Backspace still deletes a character and arrows still move the caret.
  */
 export function useKeyboardShortcuts(editor: Editor | null) {
   useEffect(() => {
@@ -33,6 +34,20 @@ export function useKeyboardShortcuts(editor: Editor | null) {
         event.preventDefault();
         if (event.shiftKey) editor.redo();
         else editor.undo();
+        return;
+      }
+
+      if (commandKey && !event.shiftKey && event.key.toLowerCase() === "d") {
+        // Cancelled even with nothing selected, so it never bookmarks the page instead.
+        event.preventDefault();
+        editor.duplicate();
+        return;
+      }
+
+      if ((event.key === "Delete" || event.key === "Backspace") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (isEditable(event.target) || !editor.getView().selection) return;
+        event.preventDefault();
+        editor.delete();
         return;
       }
 
@@ -57,6 +72,20 @@ function isTextEntry(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type);
+}
+
+/**
+ * Whether focus is in a field or anything else editable, where Delete and
+ * Backspace belong to the field, never the wallpaper.
+ */
+function isEditable(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
 }
 
 /** Whether the arrow keys already do something here: move a caret, step a number, or change a choice. */
