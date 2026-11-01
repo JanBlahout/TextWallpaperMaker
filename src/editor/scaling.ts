@@ -31,8 +31,8 @@ export function cornerOf(box: Box, corner: Corner): Point {
   return { x: x === "start" ? box.x : box.x + box.width, y: y === "start" ? box.y : box.y + box.height };
 }
 
-/** A scale in progress: the block as it started, its box then, and the corner whose handle is dragged. */
-export interface Scale {
+/** How a scale started: the block as it was, its box then, and the corner whose handle is dragged. */
+export interface ScaleStart {
   block: TextBlock;
   start: Box;
   corner: Corner;
@@ -60,12 +60,14 @@ export interface ScaledBlock {
  * spacing and line height follow because they're relative to it.
  *
  * With `snapping`, the two edges that meet at the dragged corner snap like a
- * dragged box's lines (see `snap`). The box can't keep its proportions and
- * take both, so the edge with the shorter way to go wins and lands exactly on
- * its target.
+ * dragged box's lines (see `snap`), and the snap that changes the size least
+ * wins. Snapping and smart guides use the box scaled exactly by the factor;
+ * the block is placed from its measured box, so the opposite corner stays
+ * exactly fixed even where a browser measures text a hair off proportional
+ * (Chromium resolves canvas font sizes to 0.01 px).
  */
 export function scaleByDrag(
-  { block, start, corner }: Scale,
+  { block, start, corner }: ScaleStart,
   offset: Point,
   measurer: TextMeasurer,
   snapping?: ScaleSnapping,
@@ -77,6 +79,8 @@ export function scaleByDrag(
     factor = Math.max(minFactor, snappedFactor(start, corner, factor, snapping));
     guides = smartGuidesFor(scaledBox(start, corner, factor), movingEdges(corner), snapping.targets);
   }
+  // Unscaled, the block stays exactly as it was: placing it again from the opposite corner could land a hair off.
+  if (factor === 1) return { block, guides };
   return { block: placed({ ...block, fontSize: block.fontSize * factor }, start, corner, measurer), guides };
 }
 
@@ -91,17 +95,26 @@ function dragFactor(box: Box, corner: Corner, offset: Point): number {
   return (moved.x * diagonal.x + moved.y * diagonal.y) / (diagonal.x ** 2 + diagonal.y ** 2);
 }
 
-/** The factor that brings the closer of the moving edges exactly onto the target in reach, or `factor` when none is. */
+/**
+ * The factor that brings a moving edge exactly onto a target in reach, or
+ * `factor` when none is. The box keeps its proportions, so it can't take both
+ * edges' snaps: the one that changes its size least wins.
+ */
 function snappedFactor(box: Box, corner: Corner, factor: number, { targets, distance }: ScaleSnapping): number {
   const scaled = scaledBox(box, corner, factor);
   const shift = snap(scaled, movingEdges(corner), targets, distance);
-  if (shift.x === null && shift.y === null) return factor;
-  // The edge moves `diagonal` px for each whole step of the factor, measured from the fixed corner.
+  // Each axis's edge lies `diagonal` px from the fixed corner per whole step of the factor.
   const fixed = cornerOf(box, OPPOSITE[corner]);
   const diagonal = diagonalOf(box, corner);
   const edge = cornerOf(scaled, corner);
-  const alongX = shift.x !== null && (shift.y === null || Math.abs(shift.x) <= Math.abs(shift.y));
-  return alongX ? (edge.x + shift.x! - fixed.x) / diagonal.x : (edge.y + shift.y! - fixed.y) / diagonal.y;
+  let snapped: number | null = null;
+  for (const axis of ["x", "y"] as const) {
+    const axisShift = shift[axis];
+    if (axisShift === null || diagonal[axis] === 0) continue;
+    const candidate = (edge[axis] + axisShift - fixed[axis]) / diagonal[axis];
+    if (snapped === null || Math.abs(candidate - factor) < Math.abs(snapped - factor)) snapped = candidate;
+  }
+  return snapped ?? factor;
 }
 
 /** The two edges that meet at a corner, which move as its handle is dragged. */

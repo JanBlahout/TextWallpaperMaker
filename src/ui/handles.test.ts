@@ -47,11 +47,23 @@ describe("which corner handle is under the pointer", () => {
     }
   });
 
-  it("picks the closest corner when the box is small enough on screen for handles to overlap", () => {
+  it("reaches at most a quarter of the way into a box that's small on screen, so its middle still moves it", () => {
+    // 40 × 16 px, shown 20 × 8 px fitted: from (90, 100) to (110, 108) on screen.
+    const small = { x: 100, y: 100, width: 40, height: 16 };
+
+    expect(handleAt(FITTED, small, { x: 95, y: 102 })).toBe("top-left");
+    expect(handleAt(FITTED, small, { x: 105, y: 106 })).toBe("bottom-right");
+    expect(handleAt(FITTED, small, { x: 100, y: 104 })).toBeNull();
+    expect(handleAt(FITTED, small, { x: 96, y: 103 })).toBeNull();
+    // Outside the box, the handles still reach 6 px.
+    expect(handleAt(FITTED, small, { x: 84, y: 94 })).toBe("top-left");
+  });
+
+  it("picks the closest corner outside a box small enough on screen for handles to overlap there", () => {
     // 16 × 8 px, shown 8 × 4 px fitted: from (90, 100) to (98, 104) on screen.
     const tiny = { x: 100, y: 100, width: 16, height: 8 };
 
-    expect(handleAt(FITTED, tiny, { x: 91, y: 101 })).toBe("top-left");
-    expect(handleAt(FITTED, tiny, { x: 97, y: 103.5 })).toBe("bottom-right");
+    expect(handleAt(FITTED, tiny, { x: 100, y: 101 })).toBe("top-right");
+    expect(handleAt(FITTED, tiny, { x: 100, y: 103.5 })).toBe("bottom-right");
   });
 });

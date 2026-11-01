@@ -14,7 +14,7 @@ import {
 } from "./model";
 import { refit } from "./refit";
 import { clampResolution, sameResolution } from "./resolution";
-import { scaleByDrag, type Corner, type Scale } from "./scaling";
+import { scaleByDrag, type Corner, type ScaleStart } from "./scaling";
 import { deserialise, serialise } from "./serialisation";
 import {
   snapDistance,
@@ -49,16 +49,22 @@ export type NudgeStep = keyof typeof NUDGE_STEPS;
 /** How far a duplicate lands right and down of its original, as a fraction of the wallpaper's shorter side. */
 const DUPLICATE_OFFSET = 0.02;
 
+/** A pointer drag on a block: where the pointer grabbed it, where its box started, what it can snap to and the smart guides showing. */
+interface Drag {
+  grab: Point;
+  start: Box;
+  targets: SnapTargets;
+  guides: SmartGuide[];
+}
+
 /**
- * A gesture in progress: a drag (the block, where the pointer grabbed it,
- * where its box started, what it can snap to and the smart guides showing),
- * a scale by a corner handle (the same, plus the corner and the block as it
- * started), a run of nudges, or a session of editing a block's text in place.
- * Each is one undo step.
+ * A gesture in progress: a drag moving a block, a drag on a corner handle
+ * scaling it (see `ScaleStart`), a run of nudges, or a session of editing a
+ * block's text in place. Each is one undo step.
  */
 type Gesture =
-  | { kind: "move"; id: string; grab: Point; start: Box; targets: SnapTargets; guides: SmartGuide[] }
-  | ({ kind: "scale"; grab: Point; targets: SnapTargets; guides: SmartGuide[] } & Scale)
+  | ({ kind: "move"; id: string } & Drag)
+  | ({ kind: "scale" } & Drag & ScaleStart)
   | { kind: "nudge" }
   | { kind: "edit"; id: string };
 
@@ -383,6 +389,32 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     return { resolution, safeArea, grid: gridOf(safeArea, settings.gridColumns), centreLines: centreLinesOf(resolution) };
   }
 
+  /** A drag on `block` grabbed at `grab`: its box, and what it can snap to (the guides showing and every other block). */
+  function dragOf(block: TextBlock, grab: Point): Drag {
+    const boxes = blockBoxes();
+    const start = boxes.find(({ id }) => id === block.id)!.box;
+    const others = boxes.filter(({ id }) => id !== block.id).map(({ box }) => box);
+    return { grab, start, targets: snapTargets(guideGeometry(), settings, others), guides: [] };
+  }
+
+  /**
+   * How far the pointer has moved since the drag's grab, in whole wallpaper
+   * px so positions stay tidy at any zoom, and whether this step snaps: only
+   * while snapping is on and not bypassed, and once the pointer has moved, so
+   * a still click leaves the block as it is, even beside a guide.
+   */
+  function dragStep({ grab }: Drag, point: Point, bypassSnapping: boolean) {
+    const offset = { x: Math.round(point.x - grab.x), y: Math.round(point.y - grab.y) };
+    return { offset, snaps: settings.snapping && !bypassSnapping && (offset.x !== 0 || offset.y !== 0) };
+  }
+
+  /** Finishes a drag of this kind, recording it as one undo step if it changed the wallpaper. */
+  function endDrag(kind: "move" | "scale") {
+    if (gesture?.kind !== kind) return;
+    endGesture();
+    changed();
+  }
+
   function blockBoxes(): BlockBox[] {
     return history.present.blocks.map((block) => {
       const { width, height } = measurer.measure(block);
@@ -449,57 +481,36 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       endGesture();
       const block = selectedBlock();
       if (!block) return;
-      const boxes = blockBoxes();
-      const start = boxes.find(({ id }) => id === block.id)!.box;
-      const others = boxes.filter(({ id }) => id !== block.id).map(({ box }) => box);
-      const targets = snapTargets(guideGeometry(), settings, others);
-      startGesture({ kind: "move", id: block.id, grab: point, start, targets, guides: [] });
+      startGesture({ kind: "move", id: block.id, ...dragOf(block, point) });
     },
     updateMove: (point, { viewScale, bypassSnapping = false } = {}) => {
       if (gesture?.kind !== "move") return;
-      const { id, grab, start, targets } = gesture;
-      // Whole wallpaper pixels, like nudges, so positions stay tidy at any zoom; a snap lands exactly.
-      const offset = { x: Math.round(point.x - grab.x), y: Math.round(point.y - grab.y) };
+      const { id, start, targets } = gesture;
+      // Whole wallpaper pixels, like nudges; a snap lands exactly.
+      const { offset, snaps } = dragStep(gesture, point, bypassSnapping);
       const moved = { ...start, x: start.x + offset.x, y: start.y + offset.y };
-      // A click that doesn't move the block leaves it where it is, even beside a guide.
-      const snaps = settings.snapping && !bypassSnapping && (offset.x !== 0 || offset.y !== 0);
       const { box, guides } = snaps
         ? snapDraggedBox(moved, targets, snapDistance(viewScale))
         : { box: moved, guides: [] };
       gesture = { ...gesture, guides };
       continueGesture(withPosition(history.present, id, { x: box.x, y: box.y }));
     },
-    endMove: () => {
-      if (gesture?.kind !== "move") return;
-      endGesture();
-      changed();
-    },
+    endMove: () => endDrag("move"),
     beginScale: (corner, point) => {
       endGesture();
       const block = selectedBlock();
       if (!block) return;
-      const boxes = blockBoxes();
-      const start = boxes.find(({ id }) => id === block.id)!.box;
-      const others = boxes.filter(({ id }) => id !== block.id).map(({ box }) => box);
-      const targets = snapTargets(guideGeometry(), settings, others);
-      startGesture({ kind: "scale", corner, block, grab: point, start, targets, guides: [] });
+      startGesture({ kind: "scale", corner, block, ...dragOf(block, point) });
     },
     updateScale: (point, { viewScale, bypassSnapping = false } = {}) => {
       if (gesture?.kind !== "scale") return;
-      const { grab, targets } = gesture;
-      // Whole wallpaper pixels, like a drag, so a still click leaves the block as it is.
-      const offset = { x: Math.round(point.x - grab.x), y: Math.round(point.y - grab.y) };
-      const snaps = settings.snapping && !bypassSnapping && (offset.x !== 0 || offset.y !== 0);
-      const snapping = snaps ? { targets, distance: snapDistance(viewScale) } : undefined;
-      const { block, guides } = scaleByDrag(gesture, offset, measurer, snapping);
+      const { offset, snaps } = dragStep(gesture, point, bypassSnapping);
+      const snapTo = snaps ? { targets: gesture.targets, distance: snapDistance(viewScale) } : undefined;
+      const { block, guides } = scaleByDrag(gesture, offset, measurer, snapTo);
       gesture = { ...gesture, guides };
       continueGesture(withBlock(history.present, block.id, () => block));
     },
-    endScale: () => {
-      if (gesture?.kind !== "scale") return;
-      endGesture();
-      changed();
-    },
+    endScale: () => endDrag("scale"),
     nudge: (direction, step = "small") => {
       const block = selectedBlock();
       if (!block) return;

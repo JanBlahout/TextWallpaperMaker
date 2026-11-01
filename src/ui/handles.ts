@@ -10,24 +10,39 @@ const HANDLE_FILL = "rgb(255, 255, 255)";
 /**
  * The corner handle of the selected `box` under `screen`, the pointer in
  * screen px, or null when there's none. Each corner is found on screen through
- * the viewport, so a handle reaches 6 screen px from it on each axis, inside or
- * outside the box, at any zoom and pan. When a box is small enough on screen
- * for handles to overlap, the closest corner wins.
+ * the viewport, so a handle reaches 6 screen px from it on each axis at any
+ * zoom and pan: outside the box, and inside it up to a quarter of the box's
+ * size on screen, so the middle of a small block still moves it. Where
+ * handles overlap outside a tiny box, the closest corner wins.
  */
 export function handleAt(viewport: Viewport, box: Box, screen: Point): Corner | null {
+  const middle = toScreen(viewport, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
   let closest: { corner: Corner; distance: number } | null = null;
   for (const corner of CORNERS) {
-    const { x, y } = toScreen(viewport, cornerOf(box, corner));
-    const distance = Math.max(Math.abs(screen.x - x), Math.abs(screen.y - y));
-    if (distance <= HANDLE_REACH && (!closest || distance < closest.distance)) closest = { corner, distance };
+    const at = toScreen(viewport, cornerOf(box, corner));
+    const inReach = (["x", "y"] as const).every((axis) => {
+      const towardsMiddle = middle[axis] - at[axis];
+      // How far the pointer is into the box from this corner on this axis; negative outside it.
+      const inward = (screen[axis] - at[axis]) * Math.sign(towardsMiddle);
+      return inward >= -HANDLE_REACH && inward <= Math.min(HANDLE_REACH, Math.abs(towardsMiddle) / 2);
+    });
+    const distance = Math.max(Math.abs(screen.x - at.x), Math.abs(screen.y - at.y));
+    if (inReach && (!closest || distance < closest.distance)) closest = { corner, distance };
   }
   return closest?.corner ?? null;
 }
 
-/** The cursor class over a corner handle: a resize arrow along the box's diagonal through that corner. */
+/** The cursor over each corner handle: a diagonal double arrow along the box's diagonal through it. */
+const CURSORS: Record<Corner, string> = {
+  "top-left": "cursor-nwse-resize",
+  "top-right": "cursor-nesw-resize",
+  "bottom-left": "cursor-nesw-resize",
+  "bottom-right": "cursor-nwse-resize",
+};
+
+/** The cursor class over a corner handle, or none away from the handles. */
 export function handleCursor(corner: Corner | null): string {
-  if (corner === null) return "";
-  return corner === "top-left" || corner === "bottom-right" ? "cursor-nwse-resize" : "cursor-nesw-resize";
+  return corner === null ? "" : CURSORS[corner];
 }
 
 /** Where a box is drawn on the overlay: its edges in canvas px. */

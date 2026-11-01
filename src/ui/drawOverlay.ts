@@ -50,24 +50,17 @@ export function drawOverlay(
     const lineWidth = Math.max(1, Math.round(pixelRatio));
     // Centres a line of `lineWidth` device px on whole pixels.
     const crisp = (position: number) => Math.round(position - lineWidth / 2) + lineWidth / 2;
-    const boxLeft = crisp(toX(selection.x));
-    const boxTop = crisp(toY(selection.y));
-    ctx.beginPath();
-    ctx.rect(
-      boxLeft,
-      boxTop,
-      crisp(toX(selection.x + selection.width)) - boxLeft,
-      crisp(toY(selection.y + selection.height)) - boxTop,
-    );
-    ctx.lineWidth = lineWidth;
-    ctx.strokeStyle = SELECTION_COLOUR;
-    ctx.stroke();
     const drawn = {
-      left: boxLeft,
-      top: boxTop,
+      left: crisp(toX(selection.x)),
+      top: crisp(toY(selection.y)),
       right: crisp(toX(selection.x + selection.width)),
       bottom: crisp(toY(selection.y + selection.height)),
     };
+    ctx.beginPath();
+    ctx.rect(drawn.left, drawn.top, drawn.right - drawn.left, drawn.bottom - drawn.top);
+    ctx.lineWidth = lineWidth;
+    ctx.strokeStyle = SELECTION_COLOUR;
+    ctx.stroke();
     drawHandles(ctx, drawn, SELECTION_COLOUR, pixelRatio);
   }
   ctx.restore();

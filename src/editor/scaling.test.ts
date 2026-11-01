@@ -167,16 +167,21 @@ describe("undoing a scale", () => {
     expect(selectedBox(editor).y).toBeCloseTo(200, 9);
   });
 
-  it("records no undo step for a click on a handle that doesn't move it", () => {
-    const editor = editorWith({ x: 400, y: 250 }, { snapping: false });
+  // At x = 300.3, placing the box from its right edge (300.3 + 240 − 240) would land a hair off, at 300.29999999999995.
+  it.each(["top-left", "top-right", "bottom-left", "bottom-right"] as const)(
+    "records no undo step for a click on the %s handle that doesn't move it",
+    (corner) => {
+      const editor = editorWith({ x: 300.3, y: 250 });
+      const grab = { x: corner.endsWith("left") ? 300.3 : 540.3, y: corner.startsWith("top") ? 250 : 350 };
 
-    editor.beginScale("bottom-right", { x: 640, y: 350 });
-    editor.updateScale({ x: 640.3, y: 349.8 });
-    editor.endScale();
+      editor.beginScale(corner, grab);
+      editor.updateScale({ x: grab.x + 0.3, y: grab.y - 0.2 }, { viewScale: 1 });
+      editor.endScale();
 
-    expect(editor.getWallpaper().blocks[0]).toMatchObject({ fontSize: 100, x: 400, y: 250 });
-    expect(editor.getView().canUndo).toBe(false);
-  });
+      expect(editor.getWallpaper().blocks[0]).toMatchObject({ fontSize: 100, x: 300.3, y: 250 });
+      expect(editor.getView().canUndo).toBe(false);
+    },
+  );
 
   it("does nothing when nothing is selected", () => {
     const editor = editorWith({ x: 400, y: 250 }, { snapping: false });
@@ -230,26 +235,28 @@ describe("snapping a scaled block", () => {
     expect(fontSize(editor)).toBeCloseTo(45300 / 420, 9);
   });
 
-  it("lets the moving edge with the shorter way to go win, since the box can't take both and keep its proportions", () => {
+  it("lets the snap that changes the size least win, since the box can't take both edges and keep its proportions", () => {
     const editor = editorWith(
       { x: 400, y: 250 },
       { gridVisible: false, safeAreaVisible: false },
-      // 120 × 100 px, from (680, 366) to (800, 466).
-      [{ x: 680, y: 366, text: "AB" }],
+      // 120 × 100 px, from (681, 369) to (801, 469).
+      [{ x: 681, y: 369, text: "AB" }],
     );
 
-    // 1.15 × along the diagonal: the right edge to 676, 4 px left of the other
-    // block's left edge, and the bottom edge to 365, 1 px above its top edge.
+    // 1.15 × along the diagonal: the right edge to 676, 5 px left of the other
+    // block's left edge, and the bottom edge to 365, 4 px above its top edge.
     editor.beginScale("bottom-right", { x: 640, y: 350 });
     editor.updateScale({ x: 676, y: 365 }, { viewScale: 1 });
 
-    // The bottom edge wins: 116 px tall instead of 100, so the right edge is at 400 + 240 × 1.16 = 678.4.
-    expect(fontSize(editor)).toBeCloseTo(116, 9);
-    expect(selectedBox(editor).y + selectedBox(editor).height).toBeCloseTo(366, 9);
-    expect(selectedBox(editor).x + selectedBox(editor).width).toBeCloseTo(678.4, 9);
+    // 5 more px on the 240 px width is a smaller change of size than 4 more on
+    // the 100 px height, which would push the right edge 16 px past its target.
+    // So the right edge wins: 281 px wide, and the bottom edge at 250 + 100 × 281 ÷ 240.
+    expect(fontSize(editor)).toBeCloseTo(28100 / 240, 9);
+    expect(selectedBox(editor).x + selectedBox(editor).width).toBeCloseTo(681, 9);
+    expect(selectedBox(editor).y + selectedBox(editor).height).toBeCloseTo(250 + 28100 / 240, 9);
     expect(editor.getView().smartGuides).toEqual([
-      // From the scaled block's left (400) to the other block's right (800).
-      { orientation: "horizontal", position: 366, from: 400, to: 800 },
+      // From the scaled block's top (250) to the other block's bottom (469).
+      { orientation: "vertical", position: 681, from: 250, to: 469 },
     ]);
   });
 
