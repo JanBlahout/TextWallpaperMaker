@@ -185,6 +185,29 @@ describe("interrupting an edit", () => {
     expect(editor.getView().editing?.id).toBe(blocks[0].id);
   });
 
+  it("keeps an emptied block deleted when another change ends its session, such as a background colour", () => {
+    const editor = editorEditingStartingBlock();
+    editor.setText("");
+
+    editor.setBackground("#1E3A5F");
+
+    expect(editor.getWallpaper().blocks).toEqual([]);
+    expect(editor.getWallpaper().background).toBe("#1E3A5F");
+    editor.undo();
+    expect(editor.getWallpaper()).toMatchObject({ blocks: [], background: "#000000" });
+    editor.undo();
+    expect(startingText(editor)).toBe(STARTING_TEXT);
+  });
+
+  it("keeps the starting block when New wallpaper ends the session of the block it replaces", () => {
+    const editor = editorEditingStartingBlock();
+    editor.setText("");
+
+    editor.newWallpaper();
+
+    expect(startingText(editor)).toBe(STARTING_TEXT);
+  });
+
   it("drops the session when a saved wallpaper loads", () => {
     const editor = editorEditingStartingBlock();
     const saved = editor.serialise();

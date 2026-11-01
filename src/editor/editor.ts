@@ -288,17 +288,21 @@ export function createEditor({ measurer }: EditorOptions): Editor {
 
   /**
    * Ends the open gesture, recording it as one undo step. Every command does
-   * this first, except one that carries the gesture on.
+   * this first, except one that carries the gesture on. Returns the id of the
+   * block it deleted for being left blank by an edit, or null.
    */
-  function endGesture() {
-    if (!gesture) return;
+  function endGesture(): string | null {
+    if (!gesture) return null;
     const ended = gesture;
     gesture = null;
-    if (ended.kind === "edit" && hasBlankText(ended.id)) {
+    if (ended.kind === "edit" && hasBlankText(history.present, ended.id)) {
       // A block that shows nothing would only clutter the wallpaper, so it goes, in the edit's own step.
       if (selectedId === ended.id) selectedId = null;
       history.commit(withoutBlock(history.present, ended.id));
-    } else history.commit(history.present);
+      return ended.id;
+    }
+    history.commit(history.present);
+    return null;
   }
 
   /** Removes the selected block, leaving nothing selected, as one undo step. */
@@ -309,14 +313,13 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     change(withoutBlock(history.present, block.id));
   }
 
-  function hasBlankText(id: string): boolean {
-    const block = history.present.blocks.find((candidate) => candidate.id === id);
-    return block !== undefined && isBlank(block.text);
-  }
 
   /** Every wallpaper change outside a gesture goes through here, so each one lands in the undo history. */
   function change(next: Wallpaper, { preview = false }: ChangeOptions = {}) {
-    endGesture();
+    const deleted = endGesture();
+    // `next` was made from the wallpaper before the edit it ended took a blank
+    // block away; the block stays gone, unless `next` is fresh and gives that id text.
+    if (deleted !== null && hasBlankText(next, deleted)) next = withoutBlock(next, deleted);
     if (preview) history.preview(next);
     else history.commit(next);
     changed();
@@ -550,6 +553,12 @@ function withBlock(wallpaper: Wallpaper, id: string, update: (block: TextBlock) 
 /** The wallpaper with `block` added on top of the others: later blocks draw on top. */
 function withBlockOnTop(wallpaper: Wallpaper, block: TextBlock): Wallpaper {
   return { ...wallpaper, blocks: [...wallpaper.blocks, block] };
+}
+
+/** Whether the wallpaper has a block `id` whose text is blank. */
+function hasBlankText(wallpaper: Wallpaper, id: string): boolean {
+  const block = wallpaper.blocks.find((candidate) => candidate.id === id);
+  return block !== undefined && isBlank(block.text);
 }
 
 /** The wallpaper without one block. */
