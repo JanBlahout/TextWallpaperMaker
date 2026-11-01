@@ -63,6 +63,9 @@ export const SAFE_MARGINS = [5, 8, 10] as const;
 /** The safe margin as a percentage of the wallpaper's shorter side. */
 export type SafeMargin = (typeof SAFE_MARGINS)[number];
 
+/** The range of grid column counts; a requested count is rounded and kept within it. */
+export const GRID_COLUMNS_RANGE = { min: 1, max: 48 } as const;
+
 /** What the quick-align actions align against. */
 export type AlignTarget = "safe-area" | "wallpaper";
 

@@ -1,9 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expectCanvasBackground, type Rgb } from "./support/canvas";
 
-const WALLPAPER_CANVAS = 'canvas[aria-label="Wallpaper canvas"]';
-
-type Rgb = [number, number, number];
 const BLACK: Rgb = [0, 0, 0];
 const NAVY: Rgb = [0x1e, 0x3a, 0x5f];
 
@@ -85,22 +83,6 @@ async function dragThroughColors(picker: Locator, colors: string[]) {
 /** Fires the `change` event the browser sends when the picker is released or closed. */
 async function releasePicker(picker: Locator) {
   await picker.evaluate((input: HTMLInputElement) => input.dispatchEvent(new Event("change", { bubbles: true })));
-}
-
-/**
- * Waits until the canvas's centre pixel, which shows the wallpaper's centre
- * (the starting wallpaper has no text there), has the given colour.
- */
-async function expectCanvasBackground(page: Page, rgb: Rgb) {
-  await expect
-    .poll(() =>
-      page.locator(WALLPAPER_CANVAS).evaluate((canvas: HTMLCanvasElement) => {
-        const x = Math.floor(canvas.width / 2);
-        const y = Math.floor(canvas.height / 2);
-        return [...canvas.getContext("2d")!.getImageData(x, y, 1, 1).data.slice(0, 3)];
-      }),
-    )
-    .toEqual(rgb);
 }
 
 /** Exports the wallpaper and reads one pixel of the downloaded PNG. */

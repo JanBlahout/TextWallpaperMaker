@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createEditor, DEFAULT_TYPOGRAPHY, type Editor, type EditorSettings, type EditorView, type Wallpaper } from "@/editor";
+import { persistEditor } from "@/persistence/autosave";
 import { createCanvasTextMeasurer } from "@/render/canvasTextMeasurer";
 import { loadFontsFor } from "@/render/fontLoading";
 
@@ -21,13 +22,13 @@ export const useEditorStore = create<EditorStore>()(() => ({ phase: "loading", e
 let editorStarted: Promise<void> | undefined;
 
 /**
- * Creates the Editor once the starting wallpaper's font has loaded, so text is
- * never measured or drawn in a fallback font. Safe to call more than once.
+ * Creates the Editor with the wallpaper saved in this browser, once its fonts
+ * have loaded, so text is never measured or drawn in a fallback font. Safe to
+ * call more than once.
  */
 export function startEditor(): Promise<void> {
-  editorStarted ??= loadFontsFor([DEFAULT_TYPOGRAPHY]).then(
-    () => {
-      const editor = createEditor({ measurer: createCanvasTextMeasurer() });
+  editorStarted ??= createSavedEditor().then(
+    (editor) => {
       editor.subscribe(() => useEditorStore.setState(snapshotOf(editor)));
       useEditorStore.setState({ phase: "ready", editor, error: null, ...snapshotOf(editor) });
     },
@@ -38,6 +39,16 @@ export function startEditor(): Promise<void> {
       }),
   );
   return editorStarted;
+}
+
+async function createSavedEditor() {
+  // The starting wallpaper is measured as the Editor is created, and again on New wallpaper.
+  await loadFontsFor([DEFAULT_TYPOGRAPHY]);
+  const editor = createEditor({ measurer: createCanvasTextMeasurer() });
+  persistEditor(editor);
+  // Saved text blocks may use other fonts.
+  await loadFontsFor(editor.getWallpaper().blocks);
+  return editor;
 }
 
 function snapshotOf(editor: Editor): EditorSnapshot {

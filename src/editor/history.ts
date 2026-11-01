@@ -17,6 +17,8 @@ export interface History<T> {
   commit(next: T): void;
   undo(): void;
   redo(): void;
+  /** Starts again from `value`, with nothing to undo or redo. */
+  reset(value: T): void;
 }
 
 export function createHistory<T>(initial: T, equals: (a: T, b: T) => boolean): History<T> {
@@ -66,6 +68,11 @@ export function createHistory<T>(initial: T, equals: (a: T, b: T) => boolean): H
       if (next === undefined) return;
       past.push(committed);
       committed = present = next;
+    },
+    reset(value) {
+      committed = present = value;
+      past.length = 0;
+      future.length = 0;
     },
   };
   return history;

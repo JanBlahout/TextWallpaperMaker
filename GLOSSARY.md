@@ -29,6 +29,10 @@ On each axis, the safe-area edge or centre a text block sits nearest to, which i
 Moving a wallpaper to a new resolution: every text block scales by one common factor and keeps its anchors.
 _Avoid_: Resize, rescale
 
+**Starting wallpaper**:
+The example the editor opens on, and that New wallpaper resets to: "DISCIPLINE / EQUALS / FREEDOM." in OCR A at the bottom-left of the safe area of a black 1920 × 1080 wallpaper.
+_Avoid_: Default wallpaper, template
+
 ### The editor
 
 **Canvas**:
