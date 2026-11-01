@@ -24,6 +24,7 @@ import {
   type SnapTargets,
 } from "./snapping";
 import type { TextMeasurer } from "./textMeasurer";
+import { withTypography } from "./typography";
 
 export interface EditorOptions {
   /** Measures text; the app passes the canvas measurer, tests a deterministic fake. */
@@ -160,6 +161,13 @@ export interface Editor {
   duplicate(): void;
   /** Removes the selected block, leaving nothing selected: one undo step. Does nothing when nothing is selected. */
   delete(): void;
+  /**
+   * Changes the selected block's typography, as set in the inspector (see
+   * `withTypography` for which values are accepted). Does nothing when nothing
+   * is selected. A commit is one undo step; `{ preview: true }` shows the change
+   * without recording a step yet, e.g. while dragging a slider.
+   */
+  setTypography(changes: Partial<Typography>, options?: ChangeOptions): void;
   /** Reverts the latest wallpaper change. */
   undo(): void;
   /** Re-applies the latest undone wallpaper change. */
@@ -425,6 +433,12 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       const wallpaper = history.present;
       selectedId = null;
       change({ ...wallpaper, blocks: wallpaper.blocks.filter(({ id }) => id !== block.id) });
+    },
+    setTypography: (changes, options) => {
+      const block = selectedBlock();
+      if (!block) return;
+      const next = withTypography(block, changes);
+      change({ ...history.present, blocks: history.present.blocks.map((b) => (b.id === block.id ? next : b)) }, options);
     },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),
