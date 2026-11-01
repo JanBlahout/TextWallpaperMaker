@@ -1,4 +1,5 @@
 export {
+  type BlockBox,
   type ChangeOptions,
   createEditor,
   DEFAULT_SETTINGS,
@@ -6,6 +7,8 @@ export {
   type Editor,
   type EditorOptions,
   type EditorView,
+  type NudgeDirection,
+  type NudgeStep,
 } from "./editor";
 export { parseHexColor } from "./color";
 export { refit, type RefitOptions } from "./refit";

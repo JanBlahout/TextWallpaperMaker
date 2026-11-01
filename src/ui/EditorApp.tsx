@@ -5,6 +5,7 @@ import { BackgroundControls } from "./BackgroundControls";
 import { ExportButton } from "./ExportButton";
 import { startEditor, useEditor, useEditorStore, useSettings, useView, useWallpaper } from "./editorStore";
 import { GuideSettings } from "./GuideSettings";
+import { Inspector } from "./Inspector";
 import { NewWallpaperButton } from "./NewWallpaperButton";
 import { ResolutionControls } from "./ResolutionControls";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
@@ -56,6 +57,7 @@ function LeftSidebar() {
 
 function CanvasArea() {
   const phase = useEditorStore((state) => state.phase);
+  const editor = useEditor();
   const wallpaper = useWallpaper();
   const view = useView();
   const settings = useSettings();
@@ -64,19 +66,10 @@ function CanvasArea() {
   if (phase === "failed") {
     return <CenteredNote>{error}</CenteredNote>;
   }
-  if (!wallpaper || !view || !settings) {
+  if (!editor || !wallpaper || !view || !settings) {
     return <CenteredNote>Loading…</CenteredNote>;
   }
-  return <WallpaperCanvas wallpaper={wallpaper} view={view} settings={settings} />;
-}
-
-function Inspector() {
-  return (
-    <aside className="border-l border-neutral-800 bg-neutral-900 px-4 py-3">
-      <h2 className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">Inspector</h2>
-      <p className="mt-3 text-xs text-neutral-500">Select a text block to edit its text, typography and position.</p>
-    </aside>
-  );
+  return <WallpaperCanvas editor={editor} wallpaper={wallpaper} view={view} settings={settings} />;
 }
 
 function AppTitle() {
