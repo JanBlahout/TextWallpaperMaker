@@ -79,6 +79,24 @@ describe("undo and redo", () => {
     expect(editor.getView().canRedo).toBe(false);
   });
 
+  it("records only wallpaper changes: editor settings are never an undo step, and undo and redo leave them alone", () => {
+    const editor = newEditor();
+    editor.setSettings({ gridColumns: 6, gridVisible: false });
+    expect(editor.getView().canUndo).toBe(false);
+
+    editor.setBackground("#1E3A5F");
+    editor.setSettings({ safeMargin: 10 });
+    editor.undo();
+
+    expect(editor.getWallpaper().background).toBe("#000000");
+    expect(editor.getView().canUndo).toBe(false);
+    expect(editor.getSettings()).toMatchObject({ gridColumns: 6, gridVisible: false, safeMargin: 10 });
+
+    editor.redo();
+    expect(editor.getWallpaper().background).toBe("#1E3A5F");
+    expect(editor.getSettings()).toMatchObject({ gridColumns: 6, gridVisible: false, safeMargin: 10 });
+  });
+
   it("clears the redo history when a new change follows an undo", () => {
     const editor = newEditor();
     editor.setBackground("#1E3A5F");
