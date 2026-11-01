@@ -1,5 +1,5 @@
 import { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
-import type { Box, EditorSettings, SafeMargin, TextBlock, Typography, Wallpaper } from "./model";
+import type { Box, EditorSettings, TextBlock, Typography, Wallpaper } from "./model";
 import type { TextMeasurer } from "./textMeasurer";
 
 export interface EditorOptions {
@@ -57,9 +57,6 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   pan: { x: 0, y: 0 },
 };
 
-/** The safe margins to choose from, as % of the wallpaper's shorter side. */
-export const SAFE_MARGINS: readonly SafeMargin[] = [5, 8, 10];
-
 /** The range of grid column counts; a requested count is rounded and kept within it. */
 export const GRID_COLUMNS_RANGE = { min: 1, max: 48 } as const;
 
@@ -106,7 +103,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     setSettings: (changes) => {
       const next = { ...settings, ...changes };
       // A column count that isn't a number can't make a grid, so it's ignored.
-      next.gridColumns = Number.isNaN(next.gridColumns) ? settings.gridColumns : wholeColumns(next.gridColumns);
+      next.gridColumns = Number.isNaN(next.gridColumns) ? settings.gridColumns : clampGridColumns(next.gridColumns);
       settings = next;
       changed();
     },
@@ -117,6 +114,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
   };
 }
 
-function wholeColumns(columns: number) {
+/** Rounds a column count to a whole number and keeps it within GRID_COLUMNS_RANGE. */
+function clampGridColumns(columns: number) {
   return Math.min(GRID_COLUMNS_RANGE.max, Math.max(GRID_COLUMNS_RANGE.min, Math.round(columns)));
 }

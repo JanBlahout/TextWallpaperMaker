@@ -95,30 +95,30 @@ describe("safe margin and grid geometry", () => {
   // Worked by hand: inset = margin % × the shorter side; 12 columns share the
   // safe-area width; rows = nearest whole number to safe height ÷ column width.
   it.each`
-    width   | height  | safeMargin | inset    | columnWidth | rows  | rowHeight
-    ${1920} | ${1080} | ${5}       | ${54}    | ${151}      | ${6}  | ${162}
-    ${1920} | ${1080} | ${8}       | ${86.4}  | ${145.6}    | ${6}  | ${151.2}
-    ${1920} | ${1080} | ${10}      | ${108}   | ${142}      | ${6}  | ${144}
-    ${3440} | ${1440} | ${5}       | ${72}    | ${274.6667} | ${5}  | ${259.2}
-    ${3440} | ${1440} | ${8}       | ${115.2} | ${267.4667} | ${5}  | ${241.92}
-    ${3440} | ${1440} | ${10}      | ${144}   | ${262.6667} | ${4}  | ${288}
-    ${2560} | ${1600} | ${5}       | ${80}    | ${200}      | ${7}  | ${205.7143}
-    ${2560} | ${1600} | ${8}       | ${128}   | ${192}      | ${7}  | ${192}
-    ${2560} | ${1600} | ${10}      | ${160}   | ${186.6667} | ${7}  | ${182.8571}
-    ${1179} | ${2556} | ${5}       | ${58.95} | ${88.425}   | ${28} | ${87.075}
-    ${1179} | ${2556} | ${8}       | ${94.32} | ${82.53}    | ${29} | ${81.6331}
-    ${1179} | ${2556} | ${10}      | ${117.9} | ${78.6}     | ${30} | ${77.34}
-    ${1080} | ${2400} | ${5}       | ${54}    | ${81}       | ${28} | ${81.8571}
-    ${1080} | ${2400} | ${8}       | ${86.4}  | ${75.6}     | ${29} | ${76.8}
-    ${1080} | ${2400} | ${10}      | ${108}   | ${72}       | ${30} | ${72.8}
+    width   | height  | safeMargin | inset    | safeWidth | safeHeight | columnWidth | rows  | rowHeight
+    ${1920} | ${1080} | ${5}       | ${54}    | ${1812}   | ${972}     | ${151}      | ${6}  | ${162}
+    ${1920} | ${1080} | ${8}       | ${86.4}  | ${1747.2} | ${907.2}   | ${145.6}    | ${6}  | ${151.2}
+    ${1920} | ${1080} | ${10}      | ${108}   | ${1704}   | ${864}     | ${142}      | ${6}  | ${144}
+    ${3440} | ${1440} | ${5}       | ${72}    | ${3296}   | ${1296}    | ${274.6667} | ${5}  | ${259.2}
+    ${3440} | ${1440} | ${8}       | ${115.2} | ${3209.6} | ${1209.6}  | ${267.4667} | ${5}  | ${241.92}
+    ${3440} | ${1440} | ${10}      | ${144}   | ${3152}   | ${1152}    | ${262.6667} | ${4}  | ${288}
+    ${2560} | ${1600} | ${5}       | ${80}    | ${2400}   | ${1440}    | ${200}      | ${7}  | ${205.7143}
+    ${2560} | ${1600} | ${8}       | ${128}   | ${2304}   | ${1344}    | ${192}      | ${7}  | ${192}
+    ${2560} | ${1600} | ${10}      | ${160}   | ${2240}   | ${1280}    | ${186.6667} | ${7}  | ${182.8571}
+    ${1179} | ${2556} | ${5}       | ${58.95} | ${1061.1} | ${2438.1}  | ${88.425}   | ${28} | ${87.075}
+    ${1179} | ${2556} | ${8}       | ${94.32} | ${990.36} | ${2367.36} | ${82.53}    | ${29} | ${81.6331}
+    ${1179} | ${2556} | ${10}      | ${117.9} | ${943.2}  | ${2320.2}  | ${78.6}     | ${30} | ${77.34}
+    ${1080} | ${2400} | ${5}       | ${54}    | ${972}    | ${2292}    | ${81}       | ${28} | ${81.8571}
+    ${1080} | ${2400} | ${8}       | ${86.4}  | ${907.2}  | ${2227.2}  | ${75.6}     | ${29} | ${76.8}
+    ${1080} | ${2400} | ${10}      | ${108}   | ${864}    | ${2184}    | ${72}       | ${30} | ${72.8}
   `(
     "$width × $height at $safeMargin%: inset $inset px, 12 columns of $columnWidth px, $rows rows of $rowHeight px",
-    ({ width, height, safeMargin, inset, columnWidth, rows, rowHeight }) => {
+    ({ width, height, safeMargin, inset, safeWidth, safeHeight, columnWidth, rows, rowHeight }) => {
       const safeArea = safeAreaOf({ width, height }, safeMargin);
       expect(safeArea.x).toBeCloseTo(inset, 9);
       expect(safeArea.y).toBeCloseTo(inset, 9);
-      expect(safeArea.width).toBeCloseTo(width - 2 * inset, 9);
-      expect(safeArea.height).toBeCloseTo(height - 2 * inset, 9);
+      expect(safeArea.width).toBeCloseTo(safeWidth, 9);
+      expect(safeArea.height).toBeCloseTo(safeHeight, 9);
 
       const grid = gridOf(safeArea, 12);
       expect(grid.columns).toBe(12);
@@ -126,8 +126,8 @@ describe("safe margin and grid geometry", () => {
       expect(grid.rows).toBe(rows);
       expect(grid.rowHeight).toBeCloseTo(rowHeight, 3);
 
-      expectEvenlySpacedLines(grid.verticalLines, { count: 13, from: inset, to: width - inset, step: columnWidth });
-      expectEvenlySpacedLines(grid.horizontalLines, { count: rows + 1, from: inset, to: height - inset, step: rowHeight });
+      expectLinesAcross(grid.verticalLines, { start: safeArea.x, end: safeArea.x + safeArea.width, gap: columnWidth });
+      expectLinesAcross(grid.horizontalLines, { start: safeArea.y, end: safeArea.y + safeArea.height, gap: rowHeight });
     },
   );
 
@@ -148,13 +148,9 @@ describe("safe margin and grid geometry", () => {
   });
 });
 
-/** The outermost lines sit exactly on the safe-area edges, and every gap is `step`. */
-function expectEvenlySpacedLines(
-  lines: number[],
-  { count, from, to, step }: { count: number; from: number; to: number; step: number },
-) {
-  expect(lines).toHaveLength(count);
-  expect(lines[0]).toBeCloseTo(from, 9);
-  expect(lines.at(-1)).toBeCloseTo(to, 9);
-  lines.slice(1).forEach((line, i) => expect(line - lines[i]).toBeCloseTo(step, 3));
+/** The outermost lines are exactly the safe-area edges `start` and `end`, and every gap between lines is `gap`. */
+function expectLinesAcross(lines: number[], { start, end, gap }: { start: number; end: number; gap: number }) {
+  expect(lines[0]).toBe(start);
+  expect(lines.at(-1)).toBe(end);
+  lines.slice(1).forEach((line, i) => expect(line - lines[i]).toBeCloseTo(gap, 3));
 }

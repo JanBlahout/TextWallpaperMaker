@@ -57,8 +57,11 @@ export interface Wallpaper {
   blocks: TextBlock[];
 }
 
+/** The safe margins to choose from, as percentages of the wallpaper's shorter side. */
+export const SAFE_MARGINS = [5, 8, 10] as const;
+
 /** The safe margin as a percentage of the wallpaper's shorter side. */
-export type SafeMargin = 5 | 8 | 10;
+export type SafeMargin = (typeof SAFE_MARGINS)[number];
 
 /** What the quick-align actions align against. */
 export type AlignTarget = "safe-area" | "wallpaper";

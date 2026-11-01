@@ -50,8 +50,9 @@ export function GuideSettings({ editor, settings }: { editor: Editor; settings: 
 }
 
 /**
- * Applies each whole number as it's typed, so the grid follows along; the
- * Editor keeps it in range. Leaving the field shows the count actually used.
+ * Sends each value as it's typed, so the grid follows along; the Editor
+ * ignores what isn't a number and keeps the rest in range. Leaving the field
+ * shows the count actually used.
  */
 function GridColumnsField({ editor, columns }: { editor: Editor; columns: number }) {
   const id = useId();
@@ -74,8 +75,7 @@ function GridColumnsField({ editor, columns }: { editor: Editor; columns: number
         value={draft ?? columns}
         onChange={(event) => {
           setDraft(event.target.value);
-          const count = event.target.valueAsNumber;
-          if (Number.isFinite(count)) editor.setSettings({ gridColumns: count });
+          editor.setSettings({ gridColumns: event.target.valueAsNumber });
         }}
         onBlur={finish}
         onKeyDown={(event) => {

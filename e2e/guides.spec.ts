@@ -20,10 +20,10 @@ test("guides are drawn over the canvas and never appear in the export", async ({
   await page.goto("/");
   const guides = page.getByTestId("guides");
 
-  let withBoth = 0;
+  let pixelsWithAllGuides = 0;
   await test.step("the grid, safe-area edges and centre lines are drawn when the editor opens", async () => {
     await expect.poll(() => drawnPixels(guides)).toBeGreaterThan(0);
-    withBoth = await drawnPixels(guides);
+    pixelsWithAllGuides = await drawnPixels(guides);
   });
 
   const exportedWithGuides = await exportPng(page);
@@ -34,12 +34,23 @@ test("guides are drawn over the canvas and never appear in the export", async ({
     expect(offending, "pixels on guide lines that aren't the background colour").toEqual([]);
   });
 
-  await test.step("hiding the grid keeps the safe-area guides; hiding those too clears the layer", async () => {
-    await page.getByRole("checkbox", { name: "Show grid" }).uncheck();
-    await expect.poll(() => drawnPixels(guides)).toBeLessThan(withBoth);
+  await test.step("the grid and the safe-area guides show and hide independently", async () => {
+    const grid = page.getByRole("checkbox", { name: "Show grid" });
+    const safeArea = page.getByRole("checkbox", { name: "Show safe area and centre lines" });
+
+    // Safe-area guides alone.
+    await grid.uncheck();
+    await expect.poll(() => drawnPixels(guides)).toBeLessThan(pixelsWithAllGuides);
     expect(await drawnPixels(guides)).toBeGreaterThan(0);
 
-    await page.getByRole("checkbox", { name: "Show safe area and centre lines" }).uncheck();
+    // The grid alone.
+    await grid.check();
+    await safeArea.uncheck();
+    await expect.poll(() => drawnPixels(guides)).toBeLessThan(pixelsWithAllGuides);
+    expect(await drawnPixels(guides)).toBeGreaterThan(0);
+
+    // Neither.
+    await grid.uncheck();
     await expect.poll(() => drawnPixels(guides)).toBe(0);
   });
 
