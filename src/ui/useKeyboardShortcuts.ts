@@ -73,7 +73,8 @@ export function useKeyboardShortcuts(editor: Editor | null) {
   }, [editor]);
 }
 
-function isTextEntry(target: EventTarget | null) {
+/** Whether `target` is where text is typed, so keys belong to it rather than to shortcuts. */
+export function isTextEntry(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type);
