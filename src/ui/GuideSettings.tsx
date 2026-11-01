@@ -4,8 +4,9 @@ import { useId, useState, type ReactNode } from "react";
 import { GRID_COLUMNS_RANGE, SAFE_MARGINS, type Editor, type EditorSettings } from "@/editor";
 
 /**
- * The left sidebar's guide controls: safe margin, grid columns and the two
- * visibility toggles. They change editor settings, never the wallpaper.
+ * The left sidebar's guide controls: safe margin, grid columns, the two
+ * visibility toggles and the Snapping toggle. They change editor settings,
+ * never the wallpaper.
  */
 export function GuideSettings({ editor, settings }: { editor: Editor; settings: EditorSettings }) {
   return (
@@ -44,6 +45,9 @@ export function GuideSettings({ editor, settings }: { editor: Editor; settings: 
         onChange={(safeAreaVisible) => editor.setSettings({ safeAreaVisible })}
       >
         Show safe area and centre lines
+      </Toggle>
+      <Toggle checked={settings.snapping} onChange={(snapping) => editor.setSettings({ snapping })}>
+        Snapping
       </Toggle>
     </section>
   );

@@ -14,6 +14,7 @@ export { parseHexColor } from "./color";
 export { refit, type RefitOptions } from "./refit";
 export { PRESET_GROUPS, presetFor, RESOLUTION_RANGE, sameResolution, type Preset } from "./resolution";
 export { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
+export type { SmartGuide, SnapOptions } from "./snapping";
 export { blockLines, letterSpacingPx, type TextMeasurement, type TextMeasurer } from "./textMeasurer";
 export { GRID_COLUMNS_RANGE, SAFE_MARGINS } from "./model";
 export type * from "./model";

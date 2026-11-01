@@ -28,7 +28,8 @@ interface WallpaperCanvasProps {
  * device pixel ratio so it stays sharp on high-DPI screens. The guides and
  * the overlay (overflow wash and selection box) are drawn on separate layers
  * above it, which export never sees (ADR 0003). Pressing on a block selects
- * it and dragging moves it; pressing on empty canvas deselects.
+ * it and dragging moves it, snapping unless Ctrl is held; pressing on empty
+ * canvas deselects.
  */
 export function WallpaperCanvas({ editor, wallpaper, view, settings }: WallpaperCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -87,6 +88,13 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
     return { x: (canvasX - offsetX) / scale, y: (canvasY - offsetY) / scale };
   };
 
+  /** Screen (CSS) px per wallpaper px, so a drag snaps within the same 6 screen px at any zoom. */
+  const viewScale = () => {
+    const canvas = overlayRef.current;
+    if (!canvas || !size) return undefined;
+    return canvasTransform(resolution, canvas, size.devicePixelRatio).scale / size.devicePixelRatio;
+  };
+
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const point = wallpaperPoint(event);
@@ -102,7 +110,7 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
     const point = wallpaperPoint(event);
-    if (point) editor.updateMove(point);
+    if (point) editor.updateMove(point, { viewScale: viewScale(), bypassSnapping: event.ctrlKey });
   };
 
   const endDrag = () => {

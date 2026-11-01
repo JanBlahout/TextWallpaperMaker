@@ -6,9 +6,10 @@ import { fakeTextMeasurer } from "./testing/fakeTextMeasurer";
 const START = { x: 54, y: 709.2 };
 const INSIDE_STARTING_BLOCK = { x: 100, y: 800 };
 
-/** An editor with the starting block selected. */
+/** An editor with the starting block selected, and snapping off so a drag follows the pointer exactly (see snapping.test.ts). */
 function editorWithBlockSelected() {
   const editor = createEditor({ measurer: fakeTextMeasurer });
+  editor.setSettings({ snapping: false });
   editor.selectAt(INSIDE_STARTING_BLOCK);
   return editor;
 }
