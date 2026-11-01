@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createEditor, DEFAULT_TYPOGRAPHY, type Editor, type EditorSettings, type EditorView, type Wallpaper } from "@/editor";
 import { persistEditor } from "@/persistence/autosave";
 import { createCanvasTextMeasurer } from "@/render/canvasTextMeasurer";
-import { loadFontsFor } from "@/render/fontLoading";
+import { fontsLoadedFor, loadFontsFor } from "@/render/fontLoading";
 
 /** What React reads from the Editor, refreshed after every change so selectors see new objects. */
 interface EditorSnapshot {
@@ -29,7 +29,10 @@ let editorStarted: Promise<void> | undefined;
 export function startEditor(): Promise<void> {
   editorStarted ??= createSavedEditor().then(
     (editor) => {
-      editor.subscribe(() => useEditorStore.setState(snapshotOf(editor)));
+      editor.subscribe(() => {
+        useEditorStore.setState(snapshotOf(editor));
+        remeasureOnceFontsLoad(editor);
+      });
       useEditorStore.setState({ phase: "ready", editor, error: null, ...snapshotOf(editor) });
     },
     (error: unknown) =>
@@ -49,6 +52,21 @@ async function createSavedEditor() {
   // Saved text blocks may use other fonts.
   await loadFontsFor(editor.getWallpaper().blocks);
   return editor;
+}
+
+/**
+ * A newly chosen font (or a new character in a hosted font) may still be
+ * loading when the Editor measures its block, which then gets the fallback
+ * font's box. The renderer waits for the font before drawing; this measures
+ * the blocks again once it has loaded, so the box matches what's drawn.
+ */
+function remeasureOnceFontsLoad(editor: Editor) {
+  const { blocks } = editor.getWallpaper();
+  if (fontsLoadedFor(blocks)) return;
+  loadFontsFor(blocks).then(
+    () => useEditorStore.setState(snapshotOf(editor)),
+    (error: unknown) => console.error(error),
+  );
 }
 
 function snapshotOf(editor: Editor): EditorSnapshot {

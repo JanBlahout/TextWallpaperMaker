@@ -5,6 +5,7 @@ import type { Box, Editor } from "@/editor";
 import { BlockActions } from "./BlockActions";
 import { useEditor, useView } from "./editorStore";
 import { QuickAlign } from "./QuickAlign";
+import { TypographyControls } from "./TypographyControls";
 
 /**
  * The right sidebar: properties of the selected text block, or a short hint
@@ -21,7 +22,10 @@ export function Inspector() {
         Inspector
       </h2>
       {editor && selection ? (
-        <PositionFields editor={editor} box={selection.box} />
+        <>
+          <TypographyControls editor={editor} blockId={selection.id} />
+          <PositionFields editor={editor} box={selection.box} />
+        </>
       ) : (
         <p className="mt-3 text-xs text-neutral-500">Select a text block to edit its text, typography and position.</p>
       )}

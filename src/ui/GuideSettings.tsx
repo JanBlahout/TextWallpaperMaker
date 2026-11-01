@@ -1,7 +1,8 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState } from "react";
 import { GRID_COLUMNS_RANGE, SAFE_MARGINS, type Editor, type EditorSettings } from "@/editor";
+import { Toggle } from "./Toggle";
 
 /**
  * The left sidebar's guide controls: safe margin, grid columns, the two
@@ -88,27 +89,5 @@ function GridColumnsField({ editor, columns }: { editor: Editor; columns: number
         className="w-16 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1 text-right font-mono text-xs text-neutral-100 tabular-nums focus:border-neutral-500 focus:outline-none"
       />
     </div>
-  );
-}
-
-function Toggle({
-  checked,
-  onChange,
-  children,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  children: ReactNode;
-}) {
-  return (
-    <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-400 hover:text-neutral-200">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="size-3.5 cursor-pointer accent-neutral-300"
-      />
-      {children}
-    </label>
   );
 }

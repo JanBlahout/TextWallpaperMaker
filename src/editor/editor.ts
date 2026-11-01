@@ -24,6 +24,7 @@ import {
   type SnapTargets,
 } from "./snapping";
 import type { TextMeasurer } from "./textMeasurer";
+import { withTypography } from "./typography";
 
 export interface EditorOptions {
   /** Measures text; the app passes the canvas measurer, tests a deterministic fake. */
@@ -160,6 +161,13 @@ export interface Editor {
   duplicate(): void;
   /** Removes the selected block, leaving nothing selected: one undo step. Does nothing when nothing is selected. */
   delete(): void;
+  /**
+   * Changes the selected block's typography, as set in the inspector (see
+   * `withTypography` for which values are accepted). Does nothing when nothing
+   * is selected. A commit is one undo step; `{ preview: true }` shows the change
+   * without recording a step yet, e.g. while dragging a slider.
+   */
+  setTypography(changes: Partial<Typography>, options?: ChangeOptions): void;
   /** Reverts the latest wallpaper change. */
   undo(): void;
   /** Re-applies the latest undone wallpaper change. */
@@ -426,6 +434,11 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       selectedId = null;
       change({ ...wallpaper, blocks: wallpaper.blocks.filter(({ id }) => id !== block.id) });
     },
+    setTypography: (changes, options) => {
+      const block = selectedBlock();
+      if (!block) return;
+      change(withBlock(history.present, block.id, (current) => withTypography(current, changes)), options);
+    },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),
     newWallpaper: () => {
@@ -452,10 +465,12 @@ export function createEditor({ measurer }: EditorOptions): Editor {
 
 /** The wallpaper with one block moved so its box's top-left corner is at `position`. */
 function withPosition(wallpaper: Wallpaper, id: string, position: Point): Wallpaper {
-  return {
-    ...wallpaper,
-    blocks: wallpaper.blocks.map((block) => (block.id === id ? { ...block, ...position } : block)),
-  };
+  return withBlock(wallpaper, id, (block) => ({ ...block, ...position }));
+}
+
+/** The wallpaper with one block replaced by `update`'s version of it. */
+function withBlock(wallpaper: Wallpaper, id: string, update: (block: TextBlock) => TextBlock): Wallpaper {
+  return { ...wallpaper, blocks: wallpaper.blocks.map((block) => (block.id === id ? update(block) : block)) };
 }
 
 /** A block id the wallpaper doesn't use yet, like "block-2". */

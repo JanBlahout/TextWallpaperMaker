@@ -17,5 +17,6 @@ export { PRESET_GROUPS, presetFor, RESOLUTION_RANGE, sameResolution, type Preset
 export { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
 export type { SmartGuide, SnapOptions } from "./snapping";
 export { blockLines, letterSpacingPx, type TextMeasurement, type TextMeasurer } from "./textMeasurer";
+export { LINE_ALIGNS } from "./model";
 export { GRID_COLUMNS_RANGE, SAFE_MARGINS } from "./model";
 export type * from "./model";
