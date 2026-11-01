@@ -1,16 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  canvasPixelsPerCssPixel,
+  centreOf,
+  inspector,
+  screenPointAt,
+  textBounds,
+  waitForTextBounds,
+  type Bounds,
+} from "./support/blocks";
+import { WALLPAPER_CANVAS } from "./support/canvas";
 import { pngSize } from "./support/png";
-
-const WALLPAPER_CANVAS = 'canvas[aria-label="Wallpaper canvas"]';
-
-/** Device-pixel bounds of the light (text) pixels on a canvas. */
-interface Bounds {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
 
 test.describe("on a high-DPI screen", () => {
   test.use({ deviceScaleFactor: 2 });
@@ -83,7 +83,8 @@ test("Cmd/Ctrl+scroll zooms towards the pointer, and scrolling pans", async ({ p
   const pointer = { x: before.left + (before.right - before.left) * 0.7, y: before.top + (before.bottom - before.top) * 0.6 };
   const fitted = await zoomLevel(page).textContent();
 
-  await page.mouse.move(...screenPoint(await canvas.boundingBox(), pointer, ratio));
+  const start = await screenPointAt(canvas, pointer);
+  await page.mouse.move(start.x, start.y);
   await page.keyboard.down("Control");
   await page.mouse.wheel(0, 100);
   await page.keyboard.up("Control");
@@ -161,6 +162,8 @@ for (const deviceScaleFactor of [1, 2]) {
       const canvas = page.locator(WALLPAPER_CANVAS);
       const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
       const y = inspector(page).getByRole("spinbutton", { name: "Y", exact: true });
+      // Off, so the block lands exactly where the pointer takes it rather than on a guide nearby.
+      await page.getByRole("checkbox", { name: "Snapping" }).uncheck();
       await waitForTextBounds(canvas);
       await page.keyboard.press("Shift+0");
       await expect(zoomLevel(page)).toHaveText("100%");
@@ -189,11 +192,11 @@ for (const deviceScaleFactor of [1, 2]) {
 
       await test.step("dragging the block 100 px right and 50 px up moves it exactly 100 and 50 wallpaper px", async () => {
         const bounds = await waitForTextBounds(canvas);
-        const start = screenPoint(await canvas.boundingBox(), centreOf(bounds), await canvasPixelsPerCssPixel(canvas));
-        await page.mouse.move(...start);
+        const start = await screenPointAt(canvas, centreOf(bounds));
+        await page.mouse.move(start.x, start.y);
         await page.mouse.down();
-        await page.mouse.move(start[0] + 50, start[1] - 25, { steps: 4 });
-        await page.mouse.move(start[0] + 100, start[1] - 50, { steps: 4 });
+        await page.mouse.move(start.x + 50, start.y - 25, { steps: 4 });
+        await page.mouse.move(start.x + 100, start.y - 50, { steps: 4 });
         await page.mouse.up();
 
         await expect(x).toHaveValue("154");
@@ -201,6 +204,136 @@ for (const deviceScaleFactor of [1, 2]) {
       });
     });
   });
+}
+
+test.describe("zoomed to 200% and panned, on a high-DPI screen", () => {
+  test.use({ deviceScaleFactor: 2 });
+
+  test("snapping stays within 6 screen px, and the smart guide, the selection box and the dragged block line up with the wallpaper", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const canvas = page.locator(WALLPAPER_CANVAS);
+    const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
+    // With the grid hidden, the safe-area edge at x 54 is the only vertical line in reach.
+    await page.getByRole("checkbox", { name: "Show grid" }).uncheck();
+    const toPage = await zoomInOnTheStartingBlock(page);
+    const start = await screenPointAt(canvas, centreOf(await waitForTextBounds(canvas)));
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+
+    await test.step("4 screen px (2 wallpaper px) off the safe-area edge, the block snaps onto it, with the guide and box on it", async () => {
+      await page.mouse.move(start.x + 4, start.y, { steps: 2 });
+      await expect(x).toHaveValue("54");
+      const edge = toPage({ x: 54, y: 0 }).x;
+      await expect.poll(() => linesAcross(page, "guides", SMART_GUIDE, start.y)).toEqual([expect.closeTo(edge, 0)]);
+      expect(await linesAcross(page, "overlay", SELECTION_BOX, start.y)).toEqual([expect.closeTo(edge, 0)]);
+    });
+
+    await test.step("8 screen px (4 wallpaper px) off it, past 6 screen px, the block moves freely with the box", async () => {
+      await page.mouse.move(start.x + 8, start.y, { steps: 2 });
+      await expect(x).toHaveValue("58");
+      await expect.poll(() => linesAcross(page, "guides", SMART_GUIDE, start.y)).toEqual([]);
+      // The box's right edge, at x 630, is past the canvas's right edge.
+      const edge = toPage({ x: 58, y: 0 }).x;
+      expect(await linesAcross(page, "overlay", SELECTION_BOX, start.y)).toEqual([expect.closeTo(edge, 0)]);
+    });
+
+    await page.mouse.up();
+    await expect(x).toHaveValue("58");
+  });
+
+  test("the in-place text field sits on the block, and zooms with the canvas while it stays open", async ({ page }) => {
+    await page.goto("/");
+    const canvas = page.locator(WALLPAPER_CANVAS);
+    const field = page.getByRole("textbox", { name: "Edit text in place" });
+    const fontSize = () => field.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+    const toPage = await zoomInOnTheStartingBlock(page);
+    const start = await screenPointAt(canvas, centreOf(await waitForTextBounds(canvas)));
+    await page.mouse.dblclick(start.x, start.y);
+    await expect(field).toBeFocused();
+
+    await test.step("its top-left corner is on the block's, at (54, 709.2), and its 96 px text shows at 192 px", async () => {
+      const corner = toPage({ x: 54, y: 709.2 });
+      const box = (await field.boundingBox())!;
+      expect(box.x).toBeCloseTo(corner.x, 0);
+      expect(box.y).toBeCloseTo(corner.y, 0);
+      expect(await fontSize()).toBe(192);
+    });
+
+    await test.step("Cmd/Ctrl+scroll over it zooms it about the pointer along with the canvas, and it stays open", async () => {
+      const before = (await field.boundingBox())!;
+      await page.keyboard.down("Control");
+      await page.mouse.wheel(0, -100);
+      await page.keyboard.up("Control");
+      await expect.poll(fontSize).toBeGreaterThan(192);
+      const growth = (await fontSize()) / 192;
+      const after = (await field.boundingBox())!;
+      expect(after.x - start.x).toBeCloseTo((before.x - start.x) * growth, 0);
+      expect(after.y - start.y).toBeCloseTo((before.y - start.y) * growth, 0);
+      await expect(field).toBeFocused();
+    });
+  });
+});
+
+/** The smart guides' rose: strongly red, little green. */
+const SMART_GUIDE = { red: [200, 255], green: [0, 120], blue: [0, 255] } as const;
+/** The selection box's blue. */
+const SELECTION_BOX = { red: [0, 150], green: [120, 210], blue: [200, 255] } as const;
+
+type Colour = { [channel in "red" | "green" | "blue"]: readonly [number, number] };
+
+/**
+ * Zooms to 100%, then in to 200%, and scrolls 1500 px left and 300 px down, so
+ * the canvas's centre shows wallpaper (960 − 1500 ÷ 2, 540 + 300 ÷ 2) = (210, 690)
+ * and the starting block's left edge is on the canvas. Returns where a
+ * wallpaper point shows on the page, worked out from that.
+ */
+async function zoomInOnTheStartingBlock(page: Page) {
+  const canvas = page.locator(WALLPAPER_CANVAS);
+  await waitForTextBounds(canvas);
+  await page.keyboard.press("Shift+0");
+  await zoomControls(page).getByRole("button", { name: "Zoom in" }).click();
+  await expect(zoomLevel(page)).toHaveText("200%");
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  // The page sees the wheel's deltas ÷ the device pixel ratio of 2: 1500 CSS px left and 300 down.
+  await page.mouse.wheel(-3000, 600);
+  const toPage = ({ x, y }: { x: number; y: number }) => ({
+    x: box.x + box.width / 2 + (x - 210) * 2,
+    y: box.y + box.height / 2 + (y - 690) * 2,
+  });
+  // Until then, the text runs off the canvas's left edge.
+  await expect.poll(async () => (await textBounds(canvas))!.left).toBeGreaterThan(0);
+  return toPage;
+}
+
+/**
+ * The page x (CSS px) of each vertical line of a colour on a layer, where it
+ * crosses the row at page y `y`, left to right: the middle of each run of
+ * device px of that colour along the row.
+ */
+async function linesAcross(page: Page, layer: "guides" | "overlay", colour: Colour, y: number): Promise<number[]> {
+  const canvas = page.getByTestId(layer);
+  const box = (await canvas.boundingBox())!;
+  const ratio = await canvasPixelsPerCssPixel(canvas);
+  const row = Math.round((y - box.y) * ratio);
+  const runs = await canvas.evaluate(
+    (element: HTMLCanvasElement, { row, red, green, blue }) => {
+      const { data } = element.getContext("2d")!.getImageData(0, row, element.width, 1);
+      const found: [number, number][] = [];
+      for (let x = 0; x < element.width; x++) {
+        const [r, g, b, a] = data.slice(x * 4, x * 4 + 4);
+        if (a < 150 || r < red[0] || r > red[1] || g < green[0] || g > green[1] || b < blue[0] || b > blue[1]) continue;
+        const last = found.at(-1);
+        if (last && last[1] === x) last[1] = x + 1;
+        else found.push([x, x + 1]);
+      }
+      return found;
+    },
+    { row, ...colour },
+  );
+  return runs.map(([from, to]) => box.x + (from + to) / 2 / ratio);
 }
 
 function zoomControls(page: Page) {
@@ -211,59 +344,20 @@ function zoomLevel(page: Page) {
   return zoomControls(page).getByTestId("zoom-level");
 }
 
-/** The right sidebar, where the selected block's position is shown. */
-function inspector(page: Page) {
-  return page.getByRole("complementary", { name: "Inspector" });
-}
-
 async function choosePreset(page: Page, group: "Desktop" | "Mobile", size: string) {
   await page.getByLabel(/^Resolution presets/).click();
   await page.getByRole("group", { name: group }).getByRole("button", { name: new RegExp(`^${size}`) }).click();
 }
 
-function centreOf({ left, top, right, bottom }: Bounds) {
-  return { x: (left + right) / 2, y: (top + bottom) / 2 };
-}
-
-/** Canvas pixels per CSS pixel: the device pixel ratio, as the canvas was sized. */
-function canvasPixelsPerCssPixel(canvas: Locator) {
-  return canvas.evaluate((element: HTMLCanvasElement) => element.width / element.getBoundingClientRect().width);
-}
-
-/** The whole-pixel page point (CSS px) over a canvas pixel. */
-function screenPoint(
-  box: { x: number; y: number } | null,
-  canvasPoint: { x: number; y: number },
-  ratio: number,
-): [number, number] {
-  return [Math.round(box!.x + canvasPoint.x / ratio), Math.round(box!.y + canvasPoint.y / ratio)];
-}
-
-async function waitForTextBounds(canvas: Locator): Promise<Bounds> {
-  await expect.poll(() => textBounds(canvas)).not.toBeNull();
-  return (await textBounds(canvas))!;
-}
-
-/** The bounds of the canvas's light pixels (the #F2F2F2 text on black), or null before any are drawn. */
-function textBounds(canvas: Locator): Promise<Bounds | null> {
-  return pixelBounds(canvas, "text");
-}
-
 /** The bounds of the canvas's opaque pixels: the wallpaper, as the space around it is left clear. */
 function wallpaperBounds(canvas: Locator): Promise<Bounds | null> {
-  return pixelBounds(canvas, "wallpaper");
-}
-
-function pixelBounds(canvas: Locator, of: "text" | "wallpaper"): Promise<Bounds | null> {
-  // Red for light text on the black starting background; alpha for anything drawn at all.
-  const channel = of === "text" ? 0 : 3;
-  return canvas.evaluate((element: HTMLCanvasElement, channel) => {
+  return canvas.evaluate((element: HTMLCanvasElement) => {
     const { width, height } = element;
     if (width === 0 || height === 0) return null;
     const { data } = element.getContext("2d")!.getImageData(0, 0, width, height);
     let bounds: Bounds | null = null;
     for (let i = 0; i < width * height; i++) {
-      if (data[i * 4 + channel] < 128) continue;
+      if (data[i * 4 + 3] < 128) continue;
       const x = i % width;
       const y = Math.floor(i / width);
       bounds = bounds
@@ -271,5 +365,5 @@ function pixelBounds(canvas: Locator, of: "text" | "wallpaper"): Promise<Bounds 
         : { left: x, top: y, right: x, bottom: y };
     }
     return bounds;
-  }, channel);
+  });
 }

@@ -191,4 +191,21 @@ describe("zoom and pan in the editor", () => {
     editor.undo();
     expect(editor.getWallpaper().blocks[0].x).toBe(54);
   });
+
+  it("keeps an in-place text edit open through zooming and panning, as one undo step", () => {
+    const editor = createEditor({ measurer: fakeTextMeasurer });
+    editor.selectAt({ x: 100, y: 800 });
+    editor.beginTextEdit();
+    editor.setText("GET UP.");
+
+    editor.setSettings({ zoom: 2, pan: { x: 300, y: 800 } });
+    editor.setText("GET UP.\nDUST OFF.");
+    expect(editor.getView().editing?.id).toBe("block-1");
+    editor.endTextEdit();
+
+    expect(editor.getWallpaper().blocks[0].text).toBe("GET UP.\nDUST OFF.");
+    editor.undo();
+    expect(editor.getWallpaper().blocks[0].text).toBe("DISCIPLINE\nEQUALS\nFREEDOM.");
+    expect(editor.getView().canUndo).toBe(false);
+  });
 });

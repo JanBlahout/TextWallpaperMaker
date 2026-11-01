@@ -98,7 +98,8 @@ export interface Editor {
   getView(): EditorView;
   /**
    * Changes editor settings. They aren't part of the wallpaper, so this is never
-   * an undo step, and zooming or panning alone doesn't end a drag or a run of nudges.
+   * an undo step, and zooming or panning alone doesn't end a drag, a run of
+   * nudges or a text edit.
    */
   setSettings(changes: Partial<EditorSettings>): void;
   /**
@@ -388,7 +389,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       };
     },
     setSettings: (changes) => {
-      // Zooming and panning only change how the wallpaper is shown, so a drag carries on through them.
+      // Zooming and panning only change how the wallpaper is shown, so a drag or a text edit carries on through them.
       if (Object.keys(changes).some((key) => key !== "zoom" && key !== "pan")) endGesture();
       const next = { ...settings, ...changes };
       // A column count that isn't a number can't make a grid, so it's ignored.
