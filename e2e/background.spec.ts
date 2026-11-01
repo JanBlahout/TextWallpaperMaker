@@ -1,9 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { expectCanvasBackground, type Rgb } from "./support/canvas";
-
-const BLACK: Rgb = [0, 0, 0];
-const NAVY: Rgb = [0x1e, 0x3a, 0x5f];
+import { BLACK, expectCanvasBackground, NAVY, type Rgb } from "./support/canvas";
 
 test("a background colour typed in the hex field shows on the canvas and in the export, and undo and redo work", async ({
   page,

@@ -1,7 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectCanvasBackground, type Rgb } from "./support/canvas";
-
-const NAVY: Rgb = [0x1e, 0x3a, 0x5f];
+import { expectCanvasBackground, NAVY } from "./support/canvas";
 
 test("a changed background colour and guide setting are still there after a reload", async ({ page }) => {
   await page.goto("/");

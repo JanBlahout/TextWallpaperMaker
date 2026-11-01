@@ -1,11 +1,11 @@
 import { FONTS } from "@/fonts/registry";
 import { parseHexColor } from "./color";
 import {
+  ALIGN_TARGETS,
   GRID_COLUMNS_RANGE,
+  LINE_ALIGNS,
   SAFE_MARGINS,
-  type AlignTarget,
   type EditorSettings,
-  type LineAlign,
   type Point,
   type Resolution,
   type TextBlock,
@@ -27,9 +27,6 @@ const SAVE_VERSION = 1;
 
 /** A resolution's sides are whole pixels in this range, the sizes the editor allows. */
 const RESOLUTION_SIDE_RANGE = { min: 320, max: 8192 } as const;
-
-const LINE_ALIGNS: readonly LineAlign[] = ["left", "center", "right"];
-const ALIGN_TARGETS: readonly AlignTarget[] = ["safe-area", "wallpaper"];
 
 /** The wallpaper and editor settings as versioned JSON. */
 export function serialise({ wallpaper, settings }: SavedEditor): string {

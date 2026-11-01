@@ -7,30 +7,46 @@ const STORAGE_KEY = "text-wallpaper-maker";
 const SAVE_DELAY_MS = 500;
 
 /**
- * Loads what was saved in this browser into the Editor, then saves it shortly
- * after each change, and straight away if the page is hidden or left before
- * then, so a refresh or a closed tab loses nothing. Where storage is blocked,
- * the editor opens on the starting wallpaper and isn't saved.
+ * Loads what was saved in this browser into the Editor, then keeps saving it
+ * as it changes. Where storage is blocked, the editor opens on the starting
+ * wallpaper and isn't saved.
  */
 export function persistEditor(editor: Editor) {
-  let storage: Storage | null = null;
-  let saved: string | null = null;
-  try {
-    storage = window.localStorage;
-    saved = storage.getItem(STORAGE_KEY);
-  } catch {
-    // Storage is blocked, e.g. site data is turned off: there's nothing to load.
-  }
-  editor.load(saved);
-  if (!storage) return;
+  const storage = browserStorage();
+  editor.load(readSaved(storage));
+  if (storage) saveOnChange(editor, storage);
+}
 
-  const store = storage;
+/** The browser's localStorage, or null where it's blocked (e.g. site data is turned off), as reading it then throws. */
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** What was saved, or null when nothing was or it can't be read. */
+function readSaved(storage: Storage | null): string | null {
+  try {
+    return storage?.getItem(STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Saves shortly after each change, once changes pause, and straight away if
+ * the page is hidden or left before then, so a refresh or a closed tab loses
+ * nothing.
+ */
+function saveOnChange(editor: Editor, storage: Storage) {
   let pending: ReturnType<typeof setTimeout> | undefined;
   const save = () => {
     clearTimeout(pending);
     pending = undefined;
     try {
-      store.setItem(STORAGE_KEY, editor.serialise());
+      storage.setItem(STORAGE_KEY, editor.serialise());
     } catch (error) {
       // Storage is full or blocked. Editing carries on; the next change tries again.
       console.warn("The wallpaper could not be saved.", error);

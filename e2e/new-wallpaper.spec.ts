@@ -1,8 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectCanvasBackground, type Rgb } from "./support/canvas";
-
-const BLACK: Rgb = [0, 0, 0];
-const NAVY: Rgb = [0x1e, 0x3a, 0x5f];
+import { BLACK, expectCanvasBackground, NAVY } from "./support/canvas";
 
 test("New wallpaper resets to the starting wallpaper without asking, and undo brings the previous one back", async ({
   page,
