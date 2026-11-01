@@ -28,7 +28,8 @@ interface WallpaperCanvasProps {
  * device pixel ratio so it stays sharp on high-DPI screens. The guides and
  * the overlay (overflow wash and selection box) are drawn on separate layers
  * above it, which export never sees (ADR 0003). Pressing on a block selects
- * it and dragging moves it; pressing on empty canvas deselects.
+ * it and dragging moves it, snapping unless Ctrl is held; pressing on empty
+ * canvas deselects.
  */
 export function WallpaperCanvas({ editor, wallpaper, view, settings }: WallpaperCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -37,6 +38,8 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const size = useCanvasSize(containerRef);
   const dragging = useRef(false);
+  /** The drag's latest pointer position and view scale, to re-snap from when Ctrl changes. */
+  const lastMove = useRef<{ point: Point; viewScale?: number } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -87,6 +90,13 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
     return { x: (canvasX - offsetX) / scale, y: (canvasY - offsetY) / scale };
   };
 
+  /** Screen (CSS) px per wallpaper px, so a drag snaps within the same 6 screen px at any zoom. */
+  const viewScale = () => {
+    const canvas = overlayRef.current;
+    if (!canvas || !size) return undefined;
+    return canvasTransform(resolution, canvas, size.devicePixelRatio).scale / size.devicePixelRatio;
+  };
+
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const point = wallpaperPoint(event);
@@ -102,14 +112,33 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
     const point = wallpaperPoint(event);
-    if (point) editor.updateMove(point);
+    if (!point) return;
+    const scale = viewScale();
+    lastMove.current = { point, viewScale: scale };
+    editor.updateMove(point, { viewScale: scale, bypassSnapping: event.ctrlKey });
   };
 
   const endDrag = () => {
     if (!dragging.current) return;
     dragging.current = false;
+    lastMove.current = null;
     editor.endMove();
   };
+
+  // Pressing or letting go of Ctrl mid-drag unsnaps or re-snaps the block at once, without waiting for the pointer.
+  useEffect(() => {
+    const onControl = (event: KeyboardEvent) => {
+      const last = lastMove.current;
+      if (event.key !== "Control" || event.repeat || !dragging.current || !last) return;
+      editor.updateMove(last.point, { viewScale: last.viewScale, bypassSnapping: event.ctrlKey });
+    };
+    window.addEventListener("keydown", onControl);
+    window.addEventListener("keyup", onControl);
+    return () => {
+      window.removeEventListener("keydown", onControl);
+      window.removeEventListener("keyup", onControl);
+    };
+  }, [editor]);
 
   return (
     <div
@@ -118,6 +147,8 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      // On macOS, Ctrl held as the button goes down would open a context menu and break off the drag.
+      onContextMenu={(event) => event.preventDefault()}
       className="relative h-full w-full touch-none overflow-hidden select-none"
     >
       <canvas

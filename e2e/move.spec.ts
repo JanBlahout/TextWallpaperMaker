@@ -21,6 +21,8 @@ for (const deviceScaleFactor of [1, 2]) {
       page,
     }) => {
       await page.goto("/");
+      // Snapping off, so the block follows the pointer exactly (snapping.spec.ts covers snapping).
+      await page.getByRole("checkbox", { name: "Snapping" }).uncheck();
       const canvas = page.locator(WALLPAPER_CANVAS);
       const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
       const y = inspector(page).getByRole("spinbutton", { name: "Y", exact: true });

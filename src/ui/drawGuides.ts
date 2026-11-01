@@ -7,20 +7,23 @@ import type { RenderTransform } from "@/render/renderWallpaper";
  */
 const GRID_COLOUR = "rgba(34, 211, 238, 0.2)";
 const SAFE_AREA_COLOUR = "rgba(34, 211, 238, 0.65)";
+/** A strong rose, apart from the cyan guides and the blue selection box, for the lines a dragged block snapped to. */
+const SMART_GUIDE_COLOUR = "rgb(244, 63, 94)";
 /** Centre-line dashes, in CSS px. */
 const CENTRE_DASH = [6, 4];
 
 export interface GuidesToDraw {
   resolution: Resolution;
-  view: Pick<EditorView, "safeArea" | "grid" | "centreLines">;
+  view: Pick<EditorView, "safeArea" | "grid" | "centreLines" | "smartGuides">;
   visibility: Pick<EditorSettings, "gridVisible" | "safeAreaVisible">;
 }
 
 /**
  * Draws the guides on the canvas's guides layer, which sits above the
  * wallpaper and is never exported (ADR 0003): the grid on the safe area, then
- * the safe-area edges and the dashed centre lines. Lines are 1 CSS px wide and
- * land on whole device pixels so they stay crisp at any zoom.
+ * the safe-area edges and the dashed centre lines, then on top any smart
+ * guides, which show whether the other guides are visible or not. Lines are
+ * 1 CSS px wide and land on whole device pixels so they stay crisp at any zoom.
  */
 export function drawGuides(
   ctx: CanvasRenderingContext2D,
@@ -64,6 +67,17 @@ export function drawGuides(
     verticalLine(ctx, toX(centreLines.vertical), toY(0), toY(resolution.height));
     horizontalLine(ctx, toY(centreLines.horizontal), toX(0), toX(resolution.width));
     ctx.setLineDash(CENTRE_DASH.map((length) => length * pixelRatio));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if (view.smartGuides.length > 0) {
+    ctx.beginPath();
+    for (const { orientation, position, from, to } of view.smartGuides) {
+      if (orientation === "vertical") verticalLine(ctx, toX(position), toY(from), toY(to));
+      else horizontalLine(ctx, toY(position), toX(from), toX(to));
+    }
+    ctx.strokeStyle = SMART_GUIDE_COLOUR;
     ctx.stroke();
   }
 

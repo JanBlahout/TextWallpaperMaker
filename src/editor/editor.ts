@@ -15,6 +15,14 @@ import {
 import { refit } from "./refit";
 import { clampResolution, sameResolution } from "./resolution";
 import { deserialise, serialise } from "./serialisation";
+import {
+  snapDistance,
+  snapDraggedBox,
+  snapTargets,
+  type SmartGuide,
+  type SnapOptions,
+  type SnapTargets,
+} from "./snapping";
 import type { TextMeasurer } from "./textMeasurer";
 
 export interface EditorOptions {
@@ -39,10 +47,13 @@ export type NudgeStep = keyof typeof NUDGE_STEPS;
 const DUPLICATE_OFFSET = 0.02;
 
 /**
- * A gesture in progress: a drag (the block, where the pointer grabbed it and
- * where the block started) or a run of nudges. Either is one undo step.
+ * A gesture in progress: a drag (the block, where the pointer grabbed it,
+ * where its box started, what it can snap to and the smart guides showing) or
+ * a run of nudges. Either is one undo step.
  */
-type Gesture = { kind: "move"; id: string; grab: Point; start: Point } | { kind: "nudge" };
+type Gesture =
+  | { kind: "move"; id: string; grab: Point; start: Box; targets: SnapTargets; guides: SmartGuide[] }
+  | { kind: "nudge" };
 
 /** A text block's id with its box, measured from its text. */
 export interface BlockBox {
@@ -62,6 +73,8 @@ export interface EditorView {
   grid: Grid;
   /** The lines through the wallpaper's centre. */
   centreLines: CentreLines;
+  /** What the dragged block is snapped to right now; empty when nothing is. */
+  smartGuides: SmartGuide[];
   /** Whether there is a wallpaper change to undo. */
   canUndo: boolean;
   /** Whether there is an undone wallpaper change to redo. */
@@ -108,8 +121,16 @@ export interface Editor {
    * one undo step.
    */
   beginMove(point: Point): void;
-  /** Moves the dragged block by how far the pointer has moved since `beginMove`, in whole wallpaper px. */
-  updateMove(point: Point): void;
+  /**
+   * Moves the dragged block by how far the pointer has moved since
+   * `beginMove`, in whole wallpaper px. While snapping is on and not bypassed,
+   * the block's left, centre and right then snap to the closest vertical
+   * target within 6 screen px, and its top, middle and bottom to the closest
+   * horizontal one: grid lines while the grid is visible, safe-area edges and
+   * centre lines while the safe-area guides are, and other blocks' edges and
+   * centres. The view reports smart guides for what it lines up with.
+   */
+  updateMove(point: Point, options?: SnapOptions): void;
   /** Finishes the drag, recording it as one undo step if the block moved. */
   endMove(): void;
   /**
@@ -264,6 +285,13 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     return history.present.blocks.find(({ id }) => id === selectedId);
   }
 
+  /** Where the guides run under the current settings. */
+  function guideGeometry() {
+    const { resolution } = history.present;
+    const safeArea = safeAreaOf(resolution, settings.safeMargin);
+    return { resolution, safeArea, grid: gridOf(safeArea, settings.gridColumns), centreLines: centreLinesOf(resolution) };
+  }
+
   function blockBoxes(): BlockBox[] {
     return history.present.blocks.map((block) => {
       const { width, height } = measurer.measure(block);
@@ -284,6 +312,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
         safeArea,
         grid: gridOf(safeArea, settings.gridColumns),
         centreLines: centreLinesOf(wallpaper.resolution),
+        smartGuides: gesture?.kind === "move" ? gesture.guides : [],
         canUndo: history.canUndo,
         canRedo: history.canRedo,
       };
@@ -323,14 +352,26 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     beginMove: (point) => {
       endGesture();
       const block = selectedBlock();
-      if (block) startGesture({ kind: "move", id: block.id, grab: point, start: { x: block.x, y: block.y } });
+      if (!block) return;
+      const boxes = blockBoxes();
+      const start = boxes.find(({ id }) => id === block.id)!.box;
+      const others = boxes.filter(({ id }) => id !== block.id).map(({ box }) => box);
+      const targets = snapTargets(guideGeometry(), settings, others);
+      startGesture({ kind: "move", id: block.id, grab: point, start, targets, guides: [] });
     },
-    updateMove: (point) => {
+    updateMove: (point, { viewScale, bypassSnapping = false } = {}) => {
       if (gesture?.kind !== "move") return;
-      const { id, grab, start } = gesture;
-      // Whole wallpaper pixels, like nudges, so positions stay tidy at any zoom.
+      const { id, grab, start, targets } = gesture;
+      // Whole wallpaper pixels, like nudges, so positions stay tidy at any zoom; a snap lands exactly.
       const offset = { x: Math.round(point.x - grab.x), y: Math.round(point.y - grab.y) };
-      continueGesture(withPosition(history.present, id, { x: start.x + offset.x, y: start.y + offset.y }));
+      const moved = { ...start, x: start.x + offset.x, y: start.y + offset.y };
+      // A click that doesn't move the block leaves it where it is, even beside a guide.
+      const snaps = settings.snapping && !bypassSnapping && (offset.x !== 0 || offset.y !== 0);
+      const { box, guides } = snaps
+        ? snapDraggedBox(moved, targets, snapDistance(viewScale))
+        : { box: moved, guides: [] };
+      gesture = { ...gesture, guides };
+      continueGesture(withPosition(history.present, id, { x: box.x, y: box.y }));
     },
     endMove: () => {
       if (gesture?.kind !== "move") return;
