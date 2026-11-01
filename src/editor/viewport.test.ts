@@ -102,10 +102,10 @@ describe("zoom limits", () => {
   });
 
   it("never turn a zoom out into a zoom in, even when the fitted wallpaper is smaller than that on a tiny canvas", () => {
-    // Fitted, the wallpaper is (160 − 80) = 80 screen px wide.
+    // Fitted, the wallpaper is (160 − 2 × 40) = 80 screen px wide: a zoom of 80 ÷ 1920 = 1/24.
     const viewport = viewportOf(FULL_HD, FIT, { width: 160, height: 160 });
 
-    expect(zoomAt(viewport, viewport.zoom / 2).zoom).toBe(viewport.zoom);
+    expect(zoomAt(viewport, 1 / 48).zoom).toBeCloseTo(1 / 24, 12);
   });
 
   it("show a saved zoom beyond them within them", () => {
@@ -144,10 +144,10 @@ describe("pan limits", () => {
 describe("zoom and pan in the editor", () => {
   it("are editor settings, never undo steps, and undo leaves them as they are", () => {
     const editor = createEditor({ measurer: fakeTextMeasurer });
-    const view = () => viewportOf(editor.getWallpaper().resolution, editor.getSettings(), CANVAS);
+    const viewportNow = () => viewportOf(editor.getWallpaper().resolution, editor.getSettings(), CANVAS);
 
-    editor.setSettings(zoomAt(view(), 2, { x: 720, y: 120 }));
-    editor.setSettings(panBy(view(), { x: 100, y: 0 }));
+    editor.setSettings(zoomAt(viewportNow(), 2, { x: 720, y: 120 }));
+    editor.setSettings(panBy(viewportNow(), { x: 100, y: 0 }));
     expect(editor.getView().canUndo).toBe(false);
     const zoomedAndPanned = editor.getSettings();
 
@@ -156,5 +156,39 @@ describe("zoom and pan in the editor", () => {
 
     expect(editor.getWallpaper().background).toBe("#000000");
     expect(editor.getSettings()).toEqual(zoomedAndPanned);
+  });
+
+  it("ignores a zoom or pan that isn't a finite number, which would make the save unreadable", () => {
+    const editor = createEditor({ measurer: fakeTextMeasurer });
+    editor.setSettings({ zoom: 2, pan: { x: 300, y: 800 } });
+
+    editor.setSettings({ zoom: Number.NaN });
+    editor.setSettings({ zoom: Number.POSITIVE_INFINITY });
+    editor.setSettings({ zoom: 0 });
+    editor.setSettings({ pan: { x: Number.NaN, y: 100 } });
+    editor.setSettings({ pan: { x: 100, y: Number.NEGATIVE_INFINITY } });
+
+    expect(editor.getSettings()).toMatchObject({ zoom: 2, pan: { x: 300, y: 800 } });
+    const reloaded = createEditor({ measurer: fakeTextMeasurer });
+    reloaded.load(editor.serialise());
+    expect(reloaded.getSettings()).toMatchObject({ zoom: 2, pan: { x: 300, y: 800 } });
+  });
+
+  it("lets a drag carry on through zooming and panning, as one undo step", () => {
+    const editor = createEditor({ measurer: fakeTextMeasurer });
+    // Inside the starting block, whose box starts at (54, 709.2).
+    editor.selectAt({ x: 100, y: 800 });
+    editor.beginMove({ x: 100, y: 800 });
+    editor.updateMove({ x: 150, y: 800 });
+
+    editor.setSettings({ zoom: 2, pan: { x: 300, y: 800 } });
+    editor.updateMove({ x: 200, y: 750 });
+    editor.endMove();
+
+    const [block] = editor.getWallpaper().blocks;
+    expect(block.x).toBe(154);
+    expect(block.y).toBeCloseTo(659.2, 9);
+    editor.undo();
+    expect(editor.getWallpaper().blocks[0].x).toBe(54);
   });
 });

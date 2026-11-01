@@ -100,8 +100,10 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   }, [resolution, selectionBox, viewport, size]);
 
   /** The wallpaper point under the pointer, through the same viewport the layers are drawn with. */
-  const wallpaperPoint = (event: PointerEvent<HTMLDivElement>): Point | null =>
-    viewport && toWallpaper(viewport, screenPointOf(event.currentTarget, viewport.canvas, event));
+  const wallpaperPoint = (event: PointerEvent<HTMLDivElement>): Point | null => {
+    const screen = viewport && screenPointOf(event.currentTarget, viewport.canvas, event);
+    return viewport && screen && toWallpaper(viewport, screen);
+  };
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;

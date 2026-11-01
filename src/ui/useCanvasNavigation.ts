@@ -28,10 +28,11 @@ export interface CanvasNavigation {
 }
 
 /**
- * Zooming and panning the canvas (`container`, `size` in screen px): Cmd/Ctrl+scroll and
- * trackpad pinch zoom towards the pointer, scrolling and Space+drag pan, Shift+1 fits the
- * wallpaper to the canvas and Shift+0 shows it at 100%. Zoom and pan are editor settings,
- * so none of this is an undo step.
+ * Zooming and panning the canvas, which fills `containerRef`'s element and is
+ * `size` screen px: Cmd/Ctrl+scroll and trackpad pinch zoom towards the
+ * pointer, scrolling and Space+drag pan, Shift+1 fits the wallpaper to the
+ * canvas and Shift+0 shows it at 100%. Zoom and pan are editor settings, so
+ * none of this is an undo step.
  */
 export function useCanvasNavigation(
   editor: Editor,
@@ -40,8 +41,8 @@ export function useCanvasNavigation(
 ): CanvasNavigation {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
-  /** Where a Space+drag pan started: the pointer, in client px, and the view then. */
-  const pan = useRef<{ pointerId: number; from: Point; viewport: Viewport } | null>(null);
+  /** The Space+drag under way: its pointer, where it was pressed (in screen px), and the view then. */
+  const spaceDrag = useRef<{ pointerId: number; from: Point; viewport: Viewport } | null>(null);
   const sizeRef = useRef(size);
   useEffect(() => {
     sizeRef.current = size;
@@ -61,9 +62,10 @@ export function useCanvasNavigation(
       const delta = wheelDelta(event, viewport.canvas);
       if (event.ctrlKey || event.metaKey) {
         if (pinchStart) return;
+        const pointer = screenPointOf(container, viewport.canvas, event);
+        if (!pointer) return;
         const step = Math.min(Math.max(delta.y, -MAX_WHEEL_ZOOM_DELTA), MAX_WHEEL_ZOOM_DELTA);
-        const zoom = viewport.zoom * Math.exp(-step * WHEEL_ZOOM_SPEED);
-        editor.setSettings(zoomAt(viewport, zoom, screenPointOf(container, viewport.canvas, event)));
+        editor.setSettings(zoomAt(viewport, viewport.zoom * Math.exp(-step * WHEEL_ZOOM_SPEED), pointer));
       } else {
         editor.setSettings(panBy(viewport, delta));
       }
@@ -76,8 +78,8 @@ export function useCanvasNavigation(
       event.preventDefault();
       if (!pinchStart) return;
       const gesture = event as GestureEvent;
-      const point = screenPointOf(container, pinchStart.canvas, gesture);
-      editor.setSettings(zoomAt(pinchStart, pinchStart.zoom * gesture.scale, point));
+      const pointer = screenPointOf(container, pinchStart.canvas, gesture);
+      if (pointer) editor.setSettings(zoomAt(pinchStart, pinchStart.zoom * gesture.scale, pointer));
     };
     const onGestureEnd = (event: Event) => {
       event.preventDefault();
@@ -98,11 +100,19 @@ export function useCanvasNavigation(
 
   // Space, Shift+1 and Shift+0, on the whole window like the other shortcuts.
   useEffect(() => {
+    /** The element the keyboard last moved the focus to; one focused by a click doesn't keep Space. */
+    let keyboardFocused: EventTarget | null = null;
+    const onFocusIn = (event: FocusEvent) => {
+      // Asked as focus arrives: once a key is pressed, the browser counts any focus as from the keyboard.
+      keyboardFocused = event.target instanceof Element && event.target.matches(":focus-visible") ? event.target : null;
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       const modified = event.metaKey || event.ctrlKey || event.altKey;
-      if (event.code === "Space" && !modified && !usesSpaceKey(event.target)) {
+      if (event.code === "Space" && !modified && !usesSpaceKey(event.target, keyboardFocused)) {
         // Holding Space would otherwise scroll the page.
         event.preventDefault();
+        // A control focused by a click would be pressed again when Space comes up.
+        if (event.target instanceof HTMLElement) event.target.blur();
         setSpaceHeld(true);
         return;
       }
@@ -124,10 +134,12 @@ export function useCanvasNavigation(
     // A Space released in another window never arrives here.
     const onBlur = () => setSpaceHeld(false);
 
+    window.addEventListener("focusin", onFocusIn);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
     return () => {
+      window.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
@@ -138,27 +150,25 @@ export function useCanvasNavigation(
     beginPan(event) {
       if (!spaceHeld) return false;
       const viewport = viewportNow(editor, sizeRef.current);
-      if (viewport) {
+      const from = viewport && screenPointOf(event.currentTarget, viewport.canvas, event);
+      if (viewport && from) {
         event.currentTarget.setPointerCapture(event.pointerId);
-        pan.current = { pointerId: event.pointerId, from: { x: event.clientX, y: event.clientY }, viewport };
+        spaceDrag.current = { pointerId: event.pointerId, from, viewport };
         setPanning(true);
       }
       return true;
     },
     updatePan(event) {
-      const started = pan.current;
-      if (!started) return false;
-      if (event.pointerId !== started.pointerId) return true;
-      const { canvas } = started.viewport;
-      const from = screenPointOf(event.currentTarget, canvas, { clientX: started.from.x, clientY: started.from.y });
-      const to = screenPointOf(event.currentTarget, canvas, event);
+      const drag = spaceDrag.current;
+      if (!drag) return false;
+      const to = event.pointerId === drag.pointerId && screenPointOf(event.currentTarget, drag.viewport.canvas, event);
       // The wallpaper follows the pointer, so the view moves the other way.
-      editor.setSettings(panBy(started.viewport, { x: from.x - to.x, y: from.y - to.y }));
+      if (to) editor.setSettings(panBy(drag.viewport, { x: drag.from.x - to.x, y: drag.from.y - to.y }));
       return true;
     },
     endPan() {
-      if (!pan.current) return false;
-      pan.current = null;
+      if (!spaceDrag.current) return false;
+      spaceDrag.current = null;
       setPanning(false);
       return true;
     },
@@ -179,10 +189,16 @@ function viewportNow(editor: Editor, canvas: Size | null): Viewport | null {
 /**
  * The point under the pointer in screen px: from the top-left corner of
  * `element`, which the canvas fills, scaled to the canvas's size in case its
- * layout box differs from it by a fraction of a pixel.
+ * layout box differs from it by a fraction of a pixel. Null while the element
+ * isn't laid out (e.g. hidden in a narrow window), as no point is under the pointer then.
  */
-export function screenPointOf(element: Element, canvas: Size, { clientX, clientY }: Pick<MouseEvent, "clientX" | "clientY">): Point {
+export function screenPointOf(
+  element: Element,
+  canvas: Size,
+  { clientX, clientY }: Pick<MouseEvent, "clientX" | "clientY">,
+): Point | null {
   const rect = element.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return null;
   return {
     x: (clientX - rect.left) * (canvas.width / rect.width),
     y: (clientY - rect.top) * (canvas.height / rect.height),
@@ -198,8 +214,13 @@ function wheelDelta(event: WheelEvent, canvas: Size): Point {
   return { x: event.deltaX * unit, y: event.deltaY * unit };
 }
 
-/** Whether the focused element acts on Space itself: typing a space, pressing a button, ticking a box or opening a list. */
-function usesSpaceKey(target: EventTarget | null) {
+/**
+ * Whether Space belongs to the focused element rather than to panning: while
+ * typing, or on a control the keyboard moved the focus to (pressing a button,
+ * ticking a box, opening a list). A control focused by a click doesn't keep Space.
+ */
+function usesSpaceKey(target: EventTarget | null, keyboardFocused: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || target.matches("input, textarea, select, button, summary, [role='button']");
+  if (isTextEntry(target) || target.isContentEditable) return true;
+  return target === keyboardFocused && target.matches("input, textarea, select, button, summary, [role='button']");
 }

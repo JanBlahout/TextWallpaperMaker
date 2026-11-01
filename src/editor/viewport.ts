@@ -40,24 +40,20 @@ export function viewportOf(resolution: Resolution, { zoom, pan }: ViewSettings, 
     canvas,
     // Saved settings may come from anywhere, so they're kept within the limits too.
     zoom: clampZoom(fitted ? fitZoom(resolution, canvas) : zoom, resolution, canvas),
-    centre: fitted ? { x: resolution.width / 2, y: resolution.height / 2 } : clampPan(pan, resolution),
+    centre: fitted ? middleOf(resolution) : clampPan(pan, resolution),
   };
 }
 
 /** Where a wallpaper point shows on the canvas, in screen px. */
 export function toScreen({ canvas, zoom, centre }: Viewport, point: Point): Point {
-  return {
-    x: (point.x - centre.x) * zoom + canvas.width / 2,
-    y: (point.y - centre.y) * zoom + canvas.height / 2,
-  };
+  const middle = middleOf(canvas);
+  return { x: (point.x - centre.x) * zoom + middle.x, y: (point.y - centre.y) * zoom + middle.y };
 }
 
 /** The wallpaper point shown at a point on the canvas (in screen px), e.g. under the pointer. */
 export function toWallpaper({ canvas, zoom, centre }: Viewport, point: Point): Point {
-  return {
-    x: (point.x - canvas.width / 2) / zoom + centre.x,
-    y: (point.y - canvas.height / 2) / zoom + centre.y,
-  };
+  const middle = middleOf(canvas);
+  return { x: (point.x - middle.x) / zoom + centre.x, y: (point.y - middle.y) / zoom + centre.y };
 }
 
 /**
@@ -67,12 +63,10 @@ export function toWallpaper({ canvas, zoom, centre }: Viewport, point: Point): P
  */
 export function zoomAt(viewport: Viewport, requested: number, point?: Point): { zoom: number; pan: Point } {
   const zoom = clampZoom(requested, viewport.resolution, viewport.canvas);
-  const anchor = point ?? { x: viewport.canvas.width / 2, y: viewport.canvas.height / 2 };
+  const middle = middleOf(viewport.canvas);
+  const anchor = point ?? middle;
   const held = toWallpaper(viewport, anchor);
-  const pan = {
-    x: held.x - (anchor.x - viewport.canvas.width / 2) / zoom,
-    y: held.y - (anchor.y - viewport.canvas.height / 2) / zoom,
-  };
+  const pan = { x: held.x - (anchor.x - middle.x) / zoom, y: held.y - (anchor.y - middle.y) / zoom };
   return { zoom, pan: clampPan(pan, viewport.resolution) };
 }
 
@@ -101,6 +95,11 @@ function clampZoom(zoom: number, resolution: Resolution, canvas: Size) {
 /** Keeps the canvas's centre on the wallpaper, so some of it always shows. */
 function clampPan(pan: Point, { width, height }: Resolution): Point {
   return { x: Math.min(Math.max(pan.x, 0), width), y: Math.min(Math.max(pan.y, 0), height) };
+}
+
+/** The middle of a canvas (in screen px) or of a wallpaper (in wallpaper px). */
+function middleOf({ width, height }: Size): Point {
+  return { x: width / 2, y: height / 2 };
 }
 
 /** The zoom that shows the whole wallpaper as large as fits inside the padding. */

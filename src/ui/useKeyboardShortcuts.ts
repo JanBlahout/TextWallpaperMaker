@@ -21,7 +21,8 @@ const NUDGE_KEYS: Partial<Record<string, NudgeDirection>> = {
  * (10 px with Shift), and Escape deselects. They're left to the browser in
  * fields that use those keys themselves, so undo in a text field still undoes
  * typing, Backspace still deletes a character and arrows still move the caret.
- * Cmd/Ctrl+D never bookmarks the page, even in a field.
+ * Cmd/Ctrl+D never bookmarks the page, even in a field. Zooming and panning
+ * keys belong to the canvas, in `useCanvasNavigation`.
  */
 export function useKeyboardShortcuts(editor: Editor | null) {
   useEffect(() => {

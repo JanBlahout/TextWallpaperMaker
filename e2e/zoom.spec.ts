@@ -112,6 +112,42 @@ test("Cmd/Ctrl+scroll zooms towards the pointer, and scrolling pans", async ({ p
   });
 });
 
+test("Space+drag still pans after clicking a sidebar control, without pressing it again, while a control reached with Tab keeps Space", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const canvas = page.locator(WALLPAPER_CANVAS);
+  const showGrid = page.getByRole("checkbox", { name: "Show grid" });
+  await waitForTextBounds(canvas);
+  await showGrid.click();
+  await expect(showGrid).not.toBeChecked();
+  const before = (await wallpaperBounds(canvas))!;
+
+  const box = (await canvas.boundingBox())!;
+  const start = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  await page.mouse.move(start.x, start.y);
+  await page.keyboard.down("Space");
+  await page.mouse.down();
+  await page.mouse.move(start.x + 60, start.y + 30, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up("Space");
+
+  const ratio = await canvasPixelsPerCssPixel(canvas);
+  await expect(async () => {
+    const after = (await wallpaperBounds(canvas))!;
+    expect(Math.abs(after.left - before.left - 60 * ratio)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.top - before.top - 30 * ratio)).toBeLessThanOrEqual(1);
+  }).toPass();
+  await expect(showGrid).not.toBeChecked();
+
+  // The Show grid box comes straight after the Grid columns field.
+  await page.getByRole("spinbutton", { name: "Grid columns" }).click();
+  await page.keyboard.press("Tab");
+  await expect(showGrid).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(showGrid).toBeChecked();
+});
+
 // Pointer positions go from CSS px to screen px to wallpaper px; a high-DPI
 // screen catches a conversion that forgets the device pixel ratio.
 for (const deviceScaleFactor of [1, 2]) {
@@ -210,32 +246,24 @@ async function waitForTextBounds(canvas: Locator): Promise<Bounds> {
 
 /** The bounds of the canvas's light pixels (the #F2F2F2 text on black), or null before any are drawn. */
 function textBounds(canvas: Locator): Promise<Bounds | null> {
-  return canvas.evaluate((element: HTMLCanvasElement) => {
-    const { width, height } = element;
-    if (width === 0 || height === 0) return null;
-    const { data } = element.getContext("2d")!.getImageData(0, 0, width, height);
-    let bounds: Bounds | null = null;
-    for (let i = 0; i < width * height; i++) {
-      if (data[i * 4] < 128) continue;
-      const x = i % width;
-      const y = Math.floor(i / width);
-      bounds = bounds
-        ? { left: Math.min(bounds.left, x), top: Math.min(bounds.top, y), right: Math.max(bounds.right, x), bottom: y }
-        : { left: x, top: y, right: x, bottom: y };
-    }
-    return bounds;
-  });
+  return pixelBounds(canvas, "text");
 }
 
 /** The bounds of the canvas's opaque pixels: the wallpaper, as the space around it is left clear. */
 function wallpaperBounds(canvas: Locator): Promise<Bounds | null> {
-  return canvas.evaluate((element: HTMLCanvasElement) => {
+  return pixelBounds(canvas, "wallpaper");
+}
+
+function pixelBounds(canvas: Locator, of: "text" | "wallpaper"): Promise<Bounds | null> {
+  // Red for light text on the black starting background; alpha for anything drawn at all.
+  const channel = of === "text" ? 0 : 3;
+  return canvas.evaluate((element: HTMLCanvasElement, channel) => {
     const { width, height } = element;
     if (width === 0 || height === 0) return null;
     const { data } = element.getContext("2d")!.getImageData(0, 0, width, height);
     let bounds: Bounds | null = null;
     for (let i = 0; i < width * height; i++) {
-      if (data[i * 4 + 3] < 128) continue;
+      if (data[i * 4 + channel] < 128) continue;
       const x = i % width;
       const y = Math.floor(i / width);
       bounds = bounds
@@ -243,5 +271,5 @@ function wallpaperBounds(canvas: Locator): Promise<Bounds | null> {
         : { left: x, top: y, right: x, bottom: y };
     }
     return bounds;
-  });
+  }, channel);
 }
