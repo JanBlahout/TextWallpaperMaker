@@ -49,10 +49,15 @@ test("a custom size applies only on Enter or leaving the field, notes clamping, 
     await expect(page.getByRole("status")).toContainText("Width set to 8192 px");
   });
 
-  await test.step("Cmd/Ctrl+Z undoes one resolution change at a time", async () => {
+  await test.step("Cmd/Ctrl+Z undoes one resolution change at a time, and the note doesn't come back on redo", async () => {
     await page.keyboard.press("ControlOrMeta+z");
     await expect(exportButton).toContainText("2400 × 1350 PNG");
     await expect(page.getByRole("status")).toBeEmpty();
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(exportButton).toContainText("8192 × 1350 PNG");
+    await expect(page.getByRole("status")).toBeEmpty();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(exportButton).toContainText("2400 × 1350 PNG");
     await page.keyboard.press("ControlOrMeta+z");
     await expect(exportButton).toContainText("2400 × 1080 PNG");
     await page.keyboard.press("ControlOrMeta+z");

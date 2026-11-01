@@ -34,6 +34,11 @@ export const PRESET_GROUPS: readonly { name: "Desktop" | "Mobile"; presets: read
   },
 ];
 
+/** The preset with exactly this resolution, if there is one. */
+export function presetFor(resolution: Resolution): Preset | undefined {
+  return PRESET_GROUPS.flatMap((group) => group.presets).find((preset) => sameResolution(preset, resolution));
+}
+
 /** Rounds each side to whole pixels and keeps it within RESOLUTION_RANGE. */
 export function clampResolution({ width, height }: Resolution): Resolution {
   return { width: clampSide(width), height: clampSide(height) };

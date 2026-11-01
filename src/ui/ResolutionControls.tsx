@@ -1,14 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import {
-  clampResolution,
-  PRESET_GROUPS,
-  RESOLUTION_RANGE,
-  sameResolution,
-  type Editor,
-  type Resolution,
-} from "@/editor";
+import { PRESET_GROUPS, presetFor, RESOLUTION_RANGE, sameResolution, type Editor, type Resolution } from "@/editor";
 
 /**
  * The left sidebar's resolution controls: a preset selector and custom width
@@ -32,7 +25,7 @@ export function ResolutionControls({ editor, resolution }: { editor: Editor; res
 function PresetSelector({ editor, resolution }: { editor: Editor; resolution: Resolution }) {
   const [open, setOpen] = useState(false);
   const groupId = useId();
-  const current = PRESET_GROUPS.flatMap((group) => group.presets).find((preset) => sameResolution(preset, resolution));
+  const current = presetFor(resolution);
 
   return (
     <details
@@ -108,24 +101,28 @@ function Chevron() {
 
 type Side = "width" | "height";
 
+const SIDE_LABELS: Record<Side, string> = { width: "Width", height: "Height" };
+
 /**
  * Width and height fields that apply only on Enter or when you leave the
  * field, never per keystroke, so half-typed numbers don't re-fit the layout.
- * When the Editor has to round or clamp a value, a short note says so.
+ * When the Editor rounds or clamps a value, a short note says so.
  */
 function CustomSize({ editor, resolution }: { editor: Editor; resolution: Resolution }) {
-  /** The latest note, kept with the resolution it's about so it goes away once that changes. */
+  /** The latest note, with the resolution it's about. */
   const [note, setNote] = useState<{ text: string; about: Resolution } | null>(null);
 
+  // Any other resolution change (a preset, undo, redo) makes the note stale, so it goes for good.
+  if (note && !sameResolution(note.about, resolution)) setNote(null);
+
   const apply = (side: Side, value: number) => {
-    const requested = { ...resolution, [side]: value };
-    const applied = clampResolution(requested);
-    editor.setResolution(requested);
+    editor.setResolution({ ...resolution, [side]: value });
+    const applied = editor.getWallpaper().resolution;
     setNote(
       applied[side] === value
         ? null
         : {
-            text: `${side === "width" ? "Width" : "Height"} set to ${applied[side]} px: sizes are whole pixels from ${RESOLUTION_RANGE.min} to ${RESOLUTION_RANGE.max}.`,
+            text: `${SIDE_LABELS[side]} set to ${applied[side]} px: sizes are whole pixels from ${RESOLUTION_RANGE.min} to ${RESOLUTION_RANGE.max}.`,
             about: applied,
           },
     );
@@ -143,7 +140,7 @@ function CustomSize({ editor, resolution }: { editor: Editor; resolution: Resolu
       </div>
       {/* Always rendered, so screen readers announce the note when it appears. */}
       <p role="status" className="mt-1.5 text-[11px] leading-snug text-neutral-400 empty:mt-0">
-        {note && sameResolution(note.about, resolution) ? note.text : null}
+        {note?.text}
       </p>
     </div>
   );
@@ -152,7 +149,7 @@ function CustomSize({ editor, resolution }: { editor: Editor; resolution: Resolu
 /**
  * One side's field. Typing only edits a draft; Enter or leaving the field
  * commits it (Enter leaves the field, so Cmd/Ctrl+Z undoes the change straight
- * away). Escape discards the draft, and a draft that isn't a number is dropped.
+ * away). Escape discards the draft, and so does emptying the field.
  */
 function SizeField({
   side,
@@ -165,10 +162,11 @@ function SizeField({
 }) {
   const id = useId();
   const [draft, setDraft] = useState<string | null>(null);
-  const label = side === "width" ? "Width" : "Height";
+  const label = SIDE_LABELS[side];
 
   const commit = () => {
-    if (draft !== null && draft.trim() !== "" && !Number.isNaN(Number(draft))) onCommit(side, Number(draft));
+    // A number field's value is "" while what's typed isn't a number; Number("") would be 0.
+    if (draft !== null && draft !== "") onCommit(side, Number(draft));
     setDraft(null);
   };
 

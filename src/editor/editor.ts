@@ -131,7 +131,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
   }
 
   /** Undoes or redoes. Landing on another resolution fits the view to the screen, as changing it does. */
-  function travel(move: () => void) {
+  function stepThroughHistory(move: () => void) {
     const { resolution } = history.present;
     move();
     if (!sameResolution(resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
@@ -176,8 +176,8 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       settings = { ...settings, zoom: "fit" };
       change(refit(history.present, resolution, { safeMargin: settings.safeMargin, measurer }));
     },
-    undo: () => travel(() => history.undo()),
-    redo: () => travel(() => history.redo()),
+    undo: () => stepThroughHistory(() => history.undo()),
+    redo: () => stepThroughHistory(() => history.redo()),
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

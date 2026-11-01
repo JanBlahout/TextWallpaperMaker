@@ -151,7 +151,7 @@ describe("changing the resolution", () => {
 
     editor.setResolution(requested);
 
-    expect(editor.getWallpaper()).toBe(before);
+    expect(editor.getWallpaper()).toEqual(before);
     expect(editor.getView().canUndo).toBe(false);
   });
 

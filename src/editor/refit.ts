@@ -37,14 +37,18 @@ export function refit(wallpaper: Wallpaper, resolution: Resolution, { safeMargin
       const after = measurer.measure(scaled);
       return {
         ...scaled,
-        x: keepAnchor({ start: block.x, size: before.width }, { start: from.x, size: from.width }, {
-          size: after.width,
-          within: { start: to.x, size: to.width },
+        x: keepAnchor({
+          block: { start: block.x, size: before.width },
+          safeArea: { start: from.x, size: from.width },
+          newSize: after.width,
+          newSafeArea: { start: to.x, size: to.width },
           factor,
         }),
-        y: keepAnchor({ start: block.y, size: before.height }, { start: from.y, size: from.height }, {
-          size: after.height,
-          within: { start: to.y, size: to.height },
+        y: keepAnchor({
+          block: { start: block.y, size: before.height },
+          safeArea: { start: from.y, size: from.height },
+          newSize: after.height,
+          newSafeArea: { start: to.y, size: to.height },
           factor,
         }),
       };
@@ -62,14 +66,22 @@ interface Span {
  * Where a block's re-fitted span starts on one axis. Its anchor is whichever is
  * closest: its start to the safe area's start, its centre to the safe area's
  * centre, or its end to the safe area's end (a tie goes to the earlier one).
- * The new span, `size` long, keeps that anchor `factor` × as far from the same
- * point of the new safe area, `within`.
+ * The re-fitted span, `newSize` long, keeps that anchor `factor` × as far from
+ * the same point of the new safe area.
  */
-function keepAnchor(
-  block: Span,
-  safeArea: Span,
-  { size, within, factor }: { size: number; within: Span; factor: number },
-): number {
+function keepAnchor({
+  block,
+  safeArea,
+  newSize,
+  newSafeArea,
+  factor,
+}: {
+  block: Span;
+  safeArea: Span;
+  newSize: number;
+  newSafeArea: Span;
+  factor: number;
+}): number {
   // 0 is the start, ½ the centre and 1 the end of a span.
   const anchors = [0, 0.5, 1].map((at) => ({
     at,
@@ -78,5 +90,5 @@ function keepAnchor(
   const anchor = anchors.reduce((closest, candidate) =>
     Math.abs(candidate.distance) < Math.abs(closest.distance) ? candidate : closest,
   );
-  return within.start + anchor.at * within.size + anchor.distance * factor - anchor.at * size;
+  return newSafeArea.start + anchor.at * newSafeArea.size + anchor.distance * factor - anchor.at * newSize;
 }
