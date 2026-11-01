@@ -63,19 +63,26 @@ test("in an inspector field, Backspace and Delete edit the field, and Cmd/Ctrl+D
   expect(await textBounds(canvas)).toEqual(original);
 });
 
-test("the inspector's Duplicate and Delete buttons duplicate and delete the selected block", async ({ page }) => {
+test("the inspector's Duplicate and Delete buttons duplicate and delete the selected block, and need a selection", async ({
+  page,
+}) => {
   await page.goto("/");
   const canvas = wallpaperCanvas(page);
   const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
+  const duplicate = inspector(page).getByRole("button", { name: "Duplicate" });
+  const remove = inspector(page).getByRole("button", { name: "Delete" });
   const original = await waitForTextBounds(canvas);
+  await expect(duplicate).toBeDisabled();
+  await expect(remove).toBeDisabled();
   await clickBlock(page);
 
-  await inspector(page).getByRole("button", { name: "Duplicate" }).click();
+  await duplicate.click();
   await expect(x).toHaveValue("75.6");
 
-  await inspector(page).getByRole("button", { name: "Delete" }).click();
+  await remove.click();
   await expect(inspector(page).getByText("Select a text block")).toBeVisible();
   await expect.poll(() => textBounds(canvas)).toEqual(original);
+  await expect(duplicate).toBeDisabled();
 });
 
 /**
