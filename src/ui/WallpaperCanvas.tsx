@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import type { Editor, EditorSettings, EditorView, Point, Resolution, Wallpaper } from "@/editor";
 import { loadFontsFor } from "@/render/fontLoading";
 import { renderWallpaper, type RenderTransform } from "@/render/renderWallpaper";
 import { drawGuides } from "./drawGuides";
 import { drawOverlay } from "./drawOverlay";
 import { fitWallpaper, type Size } from "./fitWallpaper";
+import { InPlaceTextEditor, type ScreenPoint } from "./InPlaceTextEditor";
 
 /** Space kept around the fitted wallpaper, in CSS px. */
 const FIT_PADDING = 40;
@@ -29,7 +30,8 @@ interface WallpaperCanvasProps {
  * the overlay (overflow wash and selection box) are drawn on separate layers
  * above it, which export never sees (ADR 0003). Pressing on a block selects
  * it and dragging moves it, snapping unless Ctrl is held; pressing on empty
- * canvas deselects.
+ * canvas deselects. Double-clicking a block opens its text for editing in
+ * place, in a text field on top.
  */
 export function WallpaperCanvas({ editor, wallpaper, view, settings }: WallpaperCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -40,6 +42,8 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   const dragging = useRef(false);
   /** The drag's latest pointer position and view scale, to re-snap from when Ctrl changes. */
   const lastMove = useRef<{ point: Point; viewScale?: number } | null>(null);
+  /** Where the block being edited was double-clicked, for the text field to open there. */
+  const [doubleClick, setDoubleClick] = useState<{ id: string; at: ScreenPoint } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -91,11 +95,7 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   };
 
   /** Screen (CSS) px per wallpaper px, so a drag snaps within the same 6 screen px at any zoom. */
-  const viewScale = () => {
-    const canvas = overlayRef.current;
-    if (!canvas || !size) return undefined;
-    return canvasTransform(resolution, canvas, size.devicePixelRatio).scale / size.devicePixelRatio;
-  };
+  const viewScale = () => (size ? cssTransform(resolution, size).scale : undefined);
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -140,6 +140,16 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
     };
   }, [editor]);
 
+  const onDoubleClick = (event: MouseEvent) => {
+    // The double-click's first press has already selected the block under the pointer.
+    editor.beginTextEdit();
+    const opened = editor.getView().editing;
+    setDoubleClick(opened && { id: opened.id, at: { x: event.clientX, y: event.clientY } });
+  };
+
+  const editing = view.editing;
+  const editingBlock = editing && wallpaper.blocks.find(({ id }) => id === editing.id);
+
   return (
     <div
       ref={containerRef}
@@ -149,6 +159,7 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
       onPointerCancel={endDrag}
       // On macOS, Ctrl held as the button goes down would open a context menu and break off the drag.
       onContextMenu={(event) => event.preventDefault()}
+      onDoubleClick={onDoubleClick}
       className="relative h-full w-full touch-none overflow-hidden select-none"
     >
       <canvas
@@ -169,6 +180,16 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
         data-testid="overlay"
         className="pointer-events-none absolute inset-0 h-full w-full"
       />
+      {editing && editingBlock && size && (
+        <InPlaceTextEditor
+          key={editing.id}
+          editor={editor}
+          block={editingBlock}
+          box={editing.box}
+          transform={cssTransform(resolution, size)}
+          openAt={doubleClick?.id === editing.id ? doubleClick.at : null}
+        />
+      )}
     </div>
   );
 }
@@ -188,14 +209,27 @@ function drawLayer(
 
 /** Sizes a canvas to the CSS size × device pixel ratio. Resizing clears it and resets its context. */
 function resizeCanvas(canvas: HTMLCanvasElement, size: CanvasSize) {
-  canvas.width = Math.round(size.width * size.devicePixelRatio);
-  canvas.height = Math.round(size.height * size.devicePixelRatio);
+  const { width, height } = canvasPixelSize(size);
+  canvas.width = width;
+  canvas.height = height;
   return canvas.getContext("2d");
+}
+
+/** A canvas's size in canvas px: its CSS size × the device pixel ratio, in whole pixels. */
+function canvasPixelSize({ width, height, devicePixelRatio }: CanvasSize): Size {
+  return { width: Math.round(width * devicePixelRatio), height: Math.round(height * devicePixelRatio) };
 }
 
 /** Wallpaper px to canvas px, shared by every layer so the guides sit exactly on the wallpaper. */
 function canvasTransform(resolution: Resolution, canvas: Size, devicePixelRatio: number): RenderTransform {
   return fitWallpaper(resolution, canvas, FIT_PADDING * devicePixelRatio);
+}
+
+/** Wallpaper px to CSS px over the canvas, for page elements laid on it: the layers' transform, in CSS px. */
+function cssTransform(resolution: Resolution, size: CanvasSize): RenderTransform {
+  const { devicePixelRatio: dpr } = size;
+  const { scale, offsetX, offsetY } = canvasTransform(resolution, canvasPixelSize(size), dpr);
+  return { scale: scale / dpr, offsetX: offsetX / dpr, offsetY: offsetY / dpr };
 }
 
 /** Tracks the CSS size of the element the canvas fills, and the device pixel ratio. */

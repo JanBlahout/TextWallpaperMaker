@@ -23,6 +23,7 @@ import {
   type SnapOptions,
   type SnapTargets,
 } from "./snapping";
+import { isBlank, newTextBlock } from "./textBlocks";
 import type { TextMeasurer } from "./textMeasurer";
 import { withTypography } from "./typography";
 
@@ -49,12 +50,14 @@ const DUPLICATE_OFFSET = 0.02;
 
 /**
  * A gesture in progress: a drag (the block, where the pointer grabbed it,
- * where its box started, what it can snap to and the smart guides showing) or
- * a run of nudges. Either is one undo step.
+ * where its box started, what it can snap to and the smart guides showing),
+ * a run of nudges, or a session of editing a block's text in place. Each is
+ * one undo step.
  */
 type Gesture =
   | { kind: "move"; id: string; grab: Point; start: Box; targets: SnapTargets; guides: SmartGuide[] }
-  | { kind: "nudge" };
+  | { kind: "nudge" }
+  | { kind: "edit"; id: string };
 
 /** A text block's id with its box, measured from its text. */
 export interface BlockBox {
@@ -68,6 +71,8 @@ export interface EditorView {
   blocks: BlockBox[];
   /** The selected block, or null when nothing is selected. */
   selection: BlockBox | null;
+  /** The block whose text is being edited in place (always the selected one), or null. */
+  editing: BlockBox | null;
   /** The region inside the safe margin. */
   safeArea: Box;
   /** The grid on the safe area. */
@@ -168,6 +173,32 @@ export interface Editor {
    * without recording a step yet, e.g. while dragging a slider.
    */
   setTypography(changes: Partial<Typography>, options?: ChangeOptions): void;
+  /**
+   * Adds a text block reading "TEXT" on top of the others, its box centred in
+   * the safe area, in the selected block's style, or the default style when
+   * nothing is selected. The new block is selected and its text opened for
+   * editing in place, so adding it and typing into it are one undo step.
+   */
+  addText(): void;
+  /**
+   * Opens the selected block's text for editing in place, as double-clicking
+   * it does. Does nothing when nothing is selected. Each `setText` shows
+   * straight away, and `endTextEdit`, or any other command, makes the whole
+   * session one undo step.
+   */
+  beginTextEdit(): void;
+  /**
+   * Sets the selected block's text as typed, with lines separated by "\n";
+   * uppercase only changes how it looks. While the block is being edited in
+   * place, this is part of that session. Otherwise, as in the inspector, a
+   * commit is one undo step and `{ preview: true }` shows the text without
+   * recording a step yet. Text that's blank (empty, or only spaces and line
+   * breaks) when it's committed or the session ends deletes the block, in the
+   * same step. Does nothing when nothing is selected.
+   */
+  setText(text: string, options?: ChangeOptions): void;
+  /** Finishes editing the block's text in place, recording the session as one undo step if the text changed. */
+  endTextEdit(): void;
   /** Reverts the latest wallpaper change. */
   undo(): void;
   /** Re-applies the latest undone wallpaper change. */
@@ -250,23 +281,45 @@ export function createEditor({ measurer }: EditorOptions): Editor {
 
   /** Opens a gesture. Whatever was showing is recorded first, so it never joins the gesture's step. */
   function startGesture(next: Gesture) {
+    endGesture();
     history.commit(history.present);
     gesture = next;
   }
 
   /**
    * Ends the open gesture, recording it as one undo step. Every command does
-   * this first, except one that carries the gesture on.
+   * this first, except one that carries the gesture on. Returns the id of the
+   * block it deleted for being left blank by an edit, or null.
    */
-  function endGesture() {
-    if (!gesture) return;
+  function endGesture(): string | null {
+    if (!gesture) return null;
+    const ended = gesture;
     gesture = null;
+    if (ended.kind === "edit" && hasBlankText(history.present, ended.id)) {
+      // A block that shows nothing would only clutter the wallpaper, so it goes, in the edit's own step.
+      if (selectedId === ended.id) selectedId = null;
+      history.commit(withoutBlock(history.present, ended.id));
+      return ended.id;
+    }
     history.commit(history.present);
+    return null;
   }
+
+  /** Removes the selected block, leaving nothing selected, as one undo step. */
+  function deleteSelected() {
+    const block = selectedBlock();
+    if (!block) return;
+    selectedId = null;
+    change(withoutBlock(history.present, block.id));
+  }
+
 
   /** Every wallpaper change outside a gesture goes through here, so each one lands in the undo history. */
   function change(next: Wallpaper, { preview = false }: ChangeOptions = {}) {
-    endGesture();
+    const deleted = endGesture();
+    // `next` was made from the wallpaper before the edit it ended took a blank
+    // block away; the block stays gone, unless `next` is fresh and gives that id text.
+    if (deleted !== null && hasBlankText(next, deleted)) next = withoutBlock(next, deleted);
     if (preview) history.preview(next);
     else history.commit(next);
     changed();
@@ -287,6 +340,11 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     if (!selectedBlock()) selectedId = null;
     if (!sameResolution(resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
     changed();
+  }
+
+  /** The id of the block whose text is being edited in place, or null. */
+  function editingId(): string | null {
+    return gesture?.kind === "edit" ? gesture.id : null;
   }
 
   function selectedBlock(): TextBlock | undefined {
@@ -317,6 +375,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       return {
         blocks,
         selection: blocks.find(({ id }) => id === selectedId) ?? null,
+        editing: blocks.find(({ id }) => id === editingId()) ?? null,
         safeArea,
         grid: gridOf(safeArea, settings.gridColumns),
         centreLines: centreLinesOf(wallpaper.resolution),
@@ -424,15 +483,33 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       const offset = DUPLICATE_OFFSET * Math.min(width, height);
       const copy = { ...block, id: unusedBlockId(wallpaper), x: block.x + offset, y: block.y + offset };
       selectedId = copy.id;
-      // Later blocks draw on top.
-      change({ ...wallpaper, blocks: [...wallpaper.blocks, copy] });
+      change(withBlockOnTop(wallpaper, copy));
     },
-    delete: () => {
+    delete: deleteSelected,
+    addText: () => {
+      const safeArea = safeAreaOf(history.present.resolution, settings.safeMargin);
+      const block = newTextBlock(unusedBlockId(history.present), selectedBlock() ?? DEFAULT_TYPOGRAPHY, safeArea, measurer);
+      startGesture({ kind: "edit", id: block.id });
+      selectedId = block.id;
+      continueGesture(withBlockOnTop(history.present, block));
+    },
+    beginTextEdit: () => {
+      const block = selectedBlock();
+      if (!block || editingId() === block.id) return;
+      startGesture({ kind: "edit", id: block.id });
+      changed();
+    },
+    setText: (text, options) => {
       const block = selectedBlock();
       if (!block) return;
-      const wallpaper = history.present;
-      selectedId = null;
-      change({ ...wallpaper, blocks: wallpaper.blocks.filter(({ id }) => id !== block.id) });
+      if (editingId() === block.id) continueGesture(withText(history.present, block.id, text));
+      else if (isBlank(text) && !options?.preview) deleteSelected();
+      else change(withText(history.present, block.id, text), options);
+    },
+    endTextEdit: () => {
+      if (!editingId()) return;
+      endGesture();
+      changed();
     },
     setTypography: (changes, options) => {
       const block = selectedBlock();
@@ -471,6 +548,27 @@ function withPosition(wallpaper: Wallpaper, id: string, position: Point): Wallpa
 /** The wallpaper with one block replaced by `update`'s version of it. */
 function withBlock(wallpaper: Wallpaper, id: string, update: (block: TextBlock) => TextBlock): Wallpaper {
   return { ...wallpaper, blocks: wallpaper.blocks.map((block) => (block.id === id ? update(block) : block)) };
+}
+
+/** The wallpaper with `block` added on top of the others: later blocks draw on top. */
+function withBlockOnTop(wallpaper: Wallpaper, block: TextBlock): Wallpaper {
+  return { ...wallpaper, blocks: [...wallpaper.blocks, block] };
+}
+
+/** Whether the wallpaper has a block `id` whose text is blank. */
+function hasBlankText(wallpaper: Wallpaper, id: string): boolean {
+  const block = wallpaper.blocks.find((candidate) => candidate.id === id);
+  return block !== undefined && isBlank(block.text);
+}
+
+/** The wallpaper without one block. */
+function withoutBlock(wallpaper: Wallpaper, id: string): Wallpaper {
+  return { ...wallpaper, blocks: wallpaper.blocks.filter((block) => block.id !== id) };
+}
+
+/** The wallpaper with one block's text replaced, as typed. */
+function withText(wallpaper: Wallpaper, id: string, text: string): Wallpaper {
+  return withBlock(wallpaper, id, (block) => ({ ...block, text }));
 }
 
 /** A block id the wallpaper doesn't use yet, like "block-2". */
