@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const port = 4173;
+// Override with E2E_PORT to run several worktrees' e2e suites side by side.
+const port = Number(process.env.E2E_PORT ?? 4173);
 
 export default defineConfig({
   testDir: "e2e",
@@ -15,7 +16,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   // Test the real static export, not the dev server.
   webServer: {
-    command: "pnpm build && pnpm serve:out",
+    command: `pnpm build && pnpm exec serve out --listen ${port} --no-clipboard`,
     url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
