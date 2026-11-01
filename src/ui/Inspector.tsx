@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { Box, Editor } from "@/editor";
 import { useEditor, useView } from "./editorStore";
 
@@ -8,10 +8,13 @@ import { useEditor, useView } from "./editorStore";
 export function Inspector() {
   const editor = useEditor();
   const selection = useView()?.selection ?? null;
+  const headingId = useId();
 
   return (
-    <aside className="border-l border-neutral-800 bg-neutral-900 px-4 py-3">
-      <h2 className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">Inspector</h2>
+    <aside aria-labelledby={headingId} className="border-l border-neutral-800 bg-neutral-900 px-4 py-3">
+      <h2 id={headingId} className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">
+        Inspector
+      </h2>
       {editor && selection ? (
         <PositionFields editor={editor} box={selection.box} />
       ) : (

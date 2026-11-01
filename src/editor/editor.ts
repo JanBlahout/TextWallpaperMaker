@@ -134,7 +134,7 @@ export interface Editor {
   serialise(): string;
   /**
    * Replaces the wallpaper and editor settings with saved ones and starts a
-   * fresh undo history. Missing (null), unreadable or unrecognised data loads
+   * fresh undo history, with nothing selected. Missing (null), unreadable or unrecognised data loads
    * the starting wallpaper and default editor settings instead.
    */
   load(saved: string | null): void;
@@ -351,6 +351,9 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     load: (saved) => {
       const loaded = deserialise(saved);
       settings = loaded?.settings ?? DEFAULT_SETTINGS;
+      // A fresh start: no gesture carries over, and nothing is selected.
+      gesture = null;
+      selectedId = null;
       history.reset(loaded?.wallpaper ?? startingWallpaper(measurer, settings));
       changed();
     },

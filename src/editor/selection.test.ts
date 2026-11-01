@@ -80,6 +80,16 @@ describe("selecting a text block", () => {
     expect(editor.getView().selection?.id).toBe("block-1");
   });
 
+  it("starts with nothing selected after loading a saved wallpaper", () => {
+    const editor = newEditor();
+    const saved = editor.serialise();
+    editor.selectAt(INSIDE_STARTING_BLOCK);
+
+    editor.load(saved);
+
+    expect(editor.getView().selection).toBeNull();
+  });
+
   it("tells subscribers when the selection changes", () => {
     const editor = newEditor();
     const seen: (string | null)[] = [];

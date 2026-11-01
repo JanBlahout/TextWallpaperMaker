@@ -135,6 +135,20 @@ describe("interrupting a drag", () => {
     editor.undo();
     expect(startingBlockPosition(editor)).toEqual(START);
   });
+
+  it("drops the drag when a saved wallpaper loads: later pointer moves move nothing", () => {
+    const editor = editorWithBlockSelected();
+    const saved = editor.serialise();
+    editor.beginMove(INSIDE_STARTING_BLOCK);
+    editor.updateMove({ x: 200, y: 800 });
+
+    editor.load(saved);
+    editor.updateMove({ x: 300, y: 800 });
+    editor.endMove();
+
+    expect(startingBlockPosition(editor)).toEqual(START);
+    expect(editor.getView().canUndo).toBe(false);
+  });
 });
 
 describe("nudging a text block", () => {

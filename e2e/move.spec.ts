@@ -22,8 +22,8 @@ for (const deviceScaleFactor of [1, 2]) {
     }) => {
       await page.goto("/");
       const canvas = page.locator(WALLPAPER_CANVAS);
-      const x = page.getByRole("spinbutton", { name: "X", exact: true });
-      const y = page.getByRole("spinbutton", { name: "Y", exact: true });
+      const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
+      const y = inspector(page).getByRole("spinbutton", { name: "Y", exact: true });
       const before = await waitForTextBounds(canvas);
       const start = await screenPointAt(canvas, centreOf(before));
       const drag = { x: 150, y: -200 };
@@ -62,16 +62,16 @@ for (const deviceScaleFactor of [1, 2]) {
 test("arrow keys nudge the selected block, Shift+arrow by 10 px, and Escape deselects", async ({ page }) => {
   await page.goto("/");
   const canvas = page.locator(WALLPAPER_CANVAS);
-  const x = page.getByRole("spinbutton", { name: "X", exact: true });
-  const y = page.getByRole("spinbutton", { name: "Y", exact: true });
-  const hint = page.getByText("Select a text block");
+  const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
+  const y = inspector(page).getByRole("spinbutton", { name: "Y", exact: true });
+  const hint = inspector(page).getByText("Select a text block");
 
   await test.step("clicking the block selects it and shows its position", async () => {
     await expect(hint).toBeVisible();
     await clickBlock(page, canvas);
     await expect(x).toHaveValue("54");
     await expect(y).toHaveValue("709.2");
-    await expect(page.getByRole("spinbutton", { name: "Width" })).toHaveJSProperty("readOnly", true);
+    await expect(inspector(page).getByRole("spinbutton", { name: "Width" })).toHaveJSProperty("readOnly", true);
   });
 
   await test.step("an arrow nudges it 1 px and Shift+arrow 10 px", async () => {
@@ -116,7 +116,7 @@ test("the part of a block past the wallpaper's edge shows faded on the canvas", 
   await page.goto("/");
   const canvas = page.locator(WALLPAPER_CANVAS);
   await clickBlock(page, canvas);
-  const x = page.getByRole("spinbutton", { name: "X", exact: true });
+  const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
   await x.fill("-200");
   await x.press("Enter");
   await page.keyboard.press("Escape");
@@ -152,6 +152,11 @@ test("the part of a block past the wallpaper's edge shows faded on the canvas", 
   expect(Math.min(...washOutside), "overlay opacity over text past the edge").toBeGreaterThan(150);
   expect(Math.max(...washInside), "overlay opacity over text inside the wallpaper").toBe(0);
 });
+
+/** The right sidebar, where the selected block's position is shown. */
+function inspector(page: Page) {
+  return page.getByRole("complementary", { name: "Inspector" });
+}
 
 /** Clicks the middle of the drawn text, which is inside the block's box. */
 async function clickBlock(page: Page, canvas: Locator) {
