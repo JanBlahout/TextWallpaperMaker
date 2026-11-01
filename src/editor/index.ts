@@ -10,6 +10,7 @@ export {
   type NudgeDirection,
   type NudgeStep,
 } from "./editor";
+export { type AlignPosition } from "./align";
 export { parseHexColor } from "./color";
 export { refit, type RefitOptions } from "./refit";
 export { PRESET_GROUPS, presetFor, RESOLUTION_RANGE, sameResolution, type Preset } from "./resolution";

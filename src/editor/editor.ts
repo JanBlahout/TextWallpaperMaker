@@ -1,3 +1,4 @@
+import { alignedPosition, alignTargetOf, type AlignPosition } from "./align";
 import { parseHexColor } from "./color";
 import { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
 import { createHistory } from "./history";
@@ -41,6 +42,9 @@ export type NudgeDirection = "left" | "right" | "up" | "down";
 const NUDGE_STEPS = { small: 1, large: 10 } as const;
 
 export type NudgeStep = keyof typeof NUDGE_STEPS;
+
+/** How far a duplicate lands right and down of its original, as a fraction of the wallpaper's shorter side. */
+const DUPLICATE_OFFSET = 0.02;
 
 /**
  * A gesture in progress: a drag (the block, where the pointer grabbed it,
@@ -141,6 +145,21 @@ export interface Editor {
    * coordinate that isn't a finite number is ignored.
    */
   setPosition(position: Partial<Point>): void;
+  /**
+   * Quick align: lines the selected block's box up with the align target in
+   * the editor settings (the safe area or the whole wallpaper), as one undo
+   * step. Left, centre and right move it across; top, middle and bottom move
+   * it up or down. Does nothing when nothing is selected.
+   */
+  align(position: AlignPosition): void;
+  /**
+   * Copies the selected block, right and down by 2% of the wallpaper's shorter
+   * side and on top of every other block, and selects the copy: one undo step.
+   * Does nothing when nothing is selected.
+   */
+  duplicate(): void;
+  /** Removes the selected block, leaving nothing selected: one undo step. Does nothing when nothing is selected. */
+  delete(): void;
   /** Reverts the latest wallpaper change. */
   undo(): void;
   /** Re-applies the latest undone wallpaper change. */
@@ -256,6 +275,8 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     endGesture();
     const { resolution } = history.present;
     move();
+    // A selected block the step took away stays forgotten, so its id can't select a later block.
+    if (!selectedBlock()) selectedId = null;
     if (!sameResolution(resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
     changed();
   }
@@ -381,6 +402,30 @@ export function createEditor({ measurer }: EditorOptions): Editor {
         withPosition(history.present, block.id, { x: finiteOr(block.x, position.x), y: finiteOr(block.y, position.y) }),
       );
     },
+    align: (position) => {
+      const selection = blockBoxes().find(({ id }) => id === selectedId);
+      if (!selection) return;
+      const target = alignTargetOf(history.present.resolution, settings);
+      change(withPosition(history.present, selection.id, alignedPosition(selection.box, target, position)));
+    },
+    duplicate: () => {
+      const block = selectedBlock();
+      if (!block) return;
+      const wallpaper = history.present;
+      const { width, height } = wallpaper.resolution;
+      const offset = DUPLICATE_OFFSET * Math.min(width, height);
+      const copy = { ...block, id: unusedBlockId(wallpaper), x: block.x + offset, y: block.y + offset };
+      selectedId = copy.id;
+      // Later blocks draw on top.
+      change({ ...wallpaper, blocks: [...wallpaper.blocks, copy] });
+    },
+    delete: () => {
+      const block = selectedBlock();
+      if (!block) return;
+      const wallpaper = history.present;
+      selectedId = null;
+      change({ ...wallpaper, blocks: wallpaper.blocks.filter(({ id }) => id !== block.id) });
+    },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),
     newWallpaper: () => {
@@ -411,6 +456,14 @@ function withPosition(wallpaper: Wallpaper, id: string, position: Point): Wallpa
     ...wallpaper,
     blocks: wallpaper.blocks.map((block) => (block.id === id ? { ...block, ...position } : block)),
   };
+}
+
+/** A block id the wallpaper doesn't use yet, like "block-2". */
+function unusedBlockId(wallpaper: Wallpaper) {
+  const used = new Set(wallpaper.blocks.map(({ id }) => id));
+  let n = wallpaper.blocks.length + 1;
+  while (used.has(`block-${n}`)) n++;
+  return `block-${n}`;
 }
 
 /** Whether `point` is inside `box` or on its edge. */

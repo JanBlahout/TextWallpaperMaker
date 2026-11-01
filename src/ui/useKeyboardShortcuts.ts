@@ -16,23 +16,43 @@ const NUDGE_KEYS: Partial<Record<string, NudgeDirection>> = {
 
 /**
  * The editor's keyboard shortcuts, listened for on the whole window:
- * Cmd/Ctrl+Z undoes and Cmd/Ctrl+Shift+Z redoes, arrow keys nudge the
- * selected block 1 px (10 px with Shift), and Escape deselects. They're left
- * to the browser in fields that use those keys themselves, so undo in a text
- * field still undoes typing and arrows still move its caret.
+ * Cmd/Ctrl+Z undoes and Cmd/Ctrl+Shift+Z redoes, Cmd/Ctrl+D duplicates the
+ * selected block, Delete or Backspace deletes it, arrow keys nudge it 1 px
+ * (10 px with Shift), and Escape deselects. They're left to the browser in
+ * fields that use those keys themselves, so undo in a text field still undoes
+ * typing, Backspace still deletes a character and arrows still move the caret.
+ * Cmd/Ctrl+D never bookmarks the page, even in a field.
  */
 export function useKeyboardShortcuts(editor: Editor | null) {
   useEffect(() => {
     if (!editor) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTextEntry(event.target)) return;
+      if (isTextEntry(event.target)) {
+        // Typing keeps the browser's text shortcuts, but never its bookmark shortcut.
+        if (isBookmarkShortcut(event)) event.preventDefault();
+        return;
+      }
       // `key`, not `code`, so Z is wherever the keyboard layout puts it.
       const commandKey = (event.metaKey || event.ctrlKey) && !event.altKey;
       if (commandKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) editor.redo();
         else editor.undo();
+        return;
+      }
+
+      if (commandKey && !event.shiftKey && event.key.toLowerCase() === "d") {
+        // Cancelled even with nothing selected, so it never bookmarks the page instead.
+        event.preventDefault();
+        editor.duplicate();
+        return;
+      }
+
+      if ((event.key === "Delete" || event.key === "Backspace") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (isEditable(event.target) || !editor.getView().selection) return;
+        event.preventDefault();
+        editor.delete();
         return;
       }
 
@@ -57,6 +77,29 @@ function isTextEntry(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true;
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type);
+}
+
+/**
+ * Whether this is the browser's bookmark shortcut: Cmd+D on a Mac, where
+ * Ctrl+D deletes forward in a text field, and Ctrl+D elsewhere.
+ */
+function isBookmarkShortcut(event: KeyboardEvent) {
+  const onMac = /Mac|iPhone|iPad/.test(navigator.platform);
+  return (onMac ? event.metaKey : event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "d";
+}
+
+/**
+ * Whether focus is in a field or anything else editable, where Delete and
+ * Backspace belong to the field, never the wallpaper.
+ */
+function isEditable(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
 }
 
 /** Whether the arrow keys already do something here: move a caret, step a number, or change a choice. */

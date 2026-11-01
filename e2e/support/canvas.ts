@@ -4,7 +4,7 @@ export type Rgb = [number, number, number];
 export const BLACK: Rgb = [0, 0, 0];
 export const NAVY: Rgb = [0x1e, 0x3a, 0x5f];
 
-const WALLPAPER_CANVAS = 'canvas[aria-label="Wallpaper canvas"]';
+export const WALLPAPER_CANVAS = 'canvas[aria-label="Wallpaper canvas"]';
 
 /**
  * Waits until the canvas's centre pixel, which shows the wallpaper's centre
