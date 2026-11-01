@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/*
+ * OCR A: Matthew Skala's v0.3.1, hosted by the app. Its licence and credit
+ * notice is in public/fonts/ocr-a/NOTICE.txt. The family name must match the
+ * font registry (src/fonts/registry.ts).
+ */
+@font-face {
+  font-family: "OCR A";
+  src: url("/fonts/ocr-a/ocr-a.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-neutral-950);
+}
