@@ -28,7 +28,7 @@ describe("New wallpaper", () => {
     expect(editor.getWallpaper().background).toBe("#1E3A5F");
   });
 
-  it("leaves the editor settings as they are", () => {
+  it("leaves the editor settings as they are when the resolution stays the same", () => {
     const editor = newEditor();
     editor.setSettings({ gridColumns: 6, gridVisible: false, snapping: false, zoom: 2 });
     editor.setBackground("#1E3A5F");
@@ -36,6 +36,17 @@ describe("New wallpaper", () => {
     editor.newWallpaper();
 
     expect(editor.getSettings()).toMatchObject({ gridColumns: 6, gridVisible: false, snapping: false, zoom: 2 });
+  });
+
+  it("fits the view to the screen when it changes the resolution, as any resolution change does", () => {
+    const editor = newEditor();
+    editor.setResolution({ width: 3840, height: 2160 });
+    editor.setSettings({ zoom: 2, gridColumns: 6 });
+
+    editor.newWallpaper();
+
+    expect(editor.getWallpaper().resolution).toEqual({ width: 1920, height: 1080 });
+    expect(editor.getSettings()).toMatchObject({ zoom: "fit", gridColumns: 6 });
   });
 
   it("places the starting block at the bottom-left of the safe area as it is now", () => {

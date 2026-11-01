@@ -11,6 +11,7 @@ import {
   type TextBlock,
   type Wallpaper,
 } from "./model";
+import { RESOLUTION_RANGE } from "./resolution";
 
 /** What the Editor saves: the wallpaper and the editor settings, never the undo history or the selection. */
 export interface SavedEditor {
@@ -24,9 +25,6 @@ export interface SavedEditor {
  * keep people's wallpapers); data of any other version loads as unrecognised.
  */
 const SAVE_VERSION = 1;
-
-/** A resolution's sides are whole pixels in this range, the sizes the editor allows. */
-const RESOLUTION_SIDE_RANGE = { min: 320, max: 8192 } as const;
 
 /** The wallpaper and editor settings as versioned JSON. */
 export function serialise({ wallpaper, settings }: SavedEditor): string {
@@ -69,7 +67,7 @@ function readWallpaper(value: unknown): Wallpaper {
 
 function readResolution(value: unknown): Resolution {
   const { width, height } = readRecord(value);
-  return { width: readWholeNumber(width, RESOLUTION_SIDE_RANGE), height: readWholeNumber(height, RESOLUTION_SIDE_RANGE) };
+  return { width: readWholeNumber(width, RESOLUTION_RANGE), height: readWholeNumber(height, RESOLUTION_RANGE) };
 }
 
 function readBlock(value: unknown): TextBlock {

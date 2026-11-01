@@ -73,7 +73,8 @@ export interface Editor {
   redo(): void;
   /**
    * Resets the wallpaper to the starting wallpaper as one undo step, so it
-   * needs no confirmation. The editor settings stay as they are.
+   * needs no confirmation. The editor settings stay as they are, except that a
+   * change of resolution fits the view to the screen, as it always does.
    */
   newWallpaper(): void;
   /** The wallpaper and editor settings in the saved format, for `load` to read back. */
@@ -197,7 +198,11 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),
-    newWallpaper: () => change(startingWallpaper(measurer, settings)),
+    newWallpaper: () => {
+      const starting = startingWallpaper(measurer, settings);
+      if (!sameResolution(starting.resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
+      change(starting);
+    },
     serialise: () => serialise({ wallpaper: history.present, settings }),
     load: (saved) => {
       const loaded = deserialise(saved);
