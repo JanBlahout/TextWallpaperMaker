@@ -5,6 +5,7 @@ import { BackgroundControls } from "./BackgroundControls";
 import { ExportButton } from "./ExportButton";
 import { startEditor, useEditor, useEditorStore, useSettings, useView, useWallpaper } from "./editorStore";
 import { GuideSettings } from "./GuideSettings";
+import { ResolutionControls } from "./ResolutionControls";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 import { WallpaperCanvas } from "./WallpaperCanvas";
 
@@ -40,6 +41,7 @@ function LeftSidebar() {
         <AppTitle />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {editor && wallpaper && <ResolutionControls editor={editor} resolution={wallpaper.resolution} />}
         {editor && wallpaper && <BackgroundControls editor={editor} wallpaper={wallpaper} />}
         {editor && settings && <GuideSettings editor={editor} settings={settings} />}
       </div>

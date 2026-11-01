@@ -1,7 +1,9 @@
 import { parseHexColor } from "./color";
 import { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
 import { createHistory } from "./history";
-import type { Box, EditorSettings, TextBlock, Typography, Wallpaper } from "./model";
+import type { Box, EditorSettings, Resolution, TextBlock, Typography, Wallpaper } from "./model";
+import { refit } from "./refit";
+import { clampResolution, sameResolution } from "./resolution";
 import type { TextMeasurer } from "./textMeasurer";
 
 export interface EditorOptions {
@@ -50,6 +52,12 @@ export interface Editor {
    * inside a colour picker.
    */
   setBackground(hex: string, options?: ChangeOptions): void;
+  /**
+   * Moves the wallpaper to a new resolution, re-fitting its text blocks (see
+   * `refit`), as one undo step. Each side is rounded and kept within
+   * RESOLUTION_RANGE first; a side that isn't a number is ignored.
+   */
+  setResolution(resolution: Resolution): void;
   /** Reverts the latest wallpaper change. */
   undo(): void;
   /** Re-applies the latest undone wallpaper change. */
@@ -122,6 +130,14 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     changed();
   }
 
+  /** Undoes or redoes. Landing on another resolution fits the view to the screen, as changing it does. */
+  function travel(move: () => void) {
+    const { resolution } = history.present;
+    move();
+    if (!sameResolution(resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
+    changed();
+  }
+
   return {
     getWallpaper: () => history.present,
     getSettings: () => settings,
@@ -152,14 +168,16 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       if (background === null) return;
       change({ ...history.present, background }, options);
     },
-    undo: () => {
-      history.undo();
-      changed();
+    setResolution: (requested) => {
+      // A side that isn't a number can't make a resolution, so it's ignored.
+      if (Number.isNaN(requested.width) || Number.isNaN(requested.height)) return;
+      const resolution = clampResolution(requested);
+      if (sameResolution(resolution, history.present.resolution)) return;
+      settings = { ...settings, zoom: "fit" };
+      change(refit(history.present, resolution, { safeMargin: settings.safeMargin, measurer }));
     },
-    redo: () => {
-      history.redo();
-      changed();
-    },
+    undo: () => travel(() => history.undo()),
+    redo: () => travel(() => history.redo()),
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
