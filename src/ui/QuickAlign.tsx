@@ -4,26 +4,24 @@ import { useId } from "react";
 import type { AlignPosition, AlignTarget } from "@/editor";
 import { useEditor, useSettings, useView } from "./editorStore";
 
-/** Where an icon's line sits: at the start, the centre or the end. */
-type IconAt = keyof typeof ICON_SHAPES;
-
 interface AlignAction {
   position: AlignPosition;
   label: string;
-  icon: { at: IconAt; vertical: boolean };
+  /** The axis the action moves the block along, and where on it the icon's line sits. */
+  icon: { axis: "x" | "y"; at: keyof typeof ICON_SHAPES };
 }
 
 /** The six actions in two groups: across, then up and down. */
 const ACTION_GROUPS: readonly (readonly AlignAction[])[] = [
   [
-    { position: "left", label: "Align left", icon: { at: "start", vertical: false } },
-    { position: "centre", label: "Centre horizontally", icon: { at: "centre", vertical: false } },
-    { position: "right", label: "Align right", icon: { at: "end", vertical: false } },
+    { position: "left", label: "Align left", icon: { axis: "x", at: "start" } },
+    { position: "centre", label: "Centre horizontally", icon: { axis: "x", at: "centre" } },
+    { position: "right", label: "Align right", icon: { axis: "x", at: "end" } },
   ],
   [
-    { position: "top", label: "Align top", icon: { at: "start", vertical: true } },
-    { position: "middle", label: "Centre vertically", icon: { at: "centre", vertical: true } },
-    { position: "bottom", label: "Align bottom", icon: { at: "end", vertical: true } },
+    { position: "top", label: "Align top", icon: { axis: "y", at: "start" } },
+    { position: "middle", label: "Centre vertically", icon: { axis: "y", at: "centre" } },
+    { position: "bottom", label: "Align bottom", icon: { axis: "y", at: "end" } },
   ],
 ];
 
@@ -96,8 +94,8 @@ export function QuickAlign() {
 }
 
 /**
- * The horizontal icons, in a 16 × 16 box: where the 1 px line's left side is,
- * and the two bars lined up with it, as [left, width].
+ * The icons for moving across, in a 16 × 16 box: where the 1 px upright line's
+ * left side is, and the two bars lined up with it, as [left, width].
  */
 const ICON_SHAPES = {
   start: { line: 2, bars: [[4, 9], [4, 6]] },
@@ -106,12 +104,12 @@ const ICON_SHAPES = {
 } as const satisfies Record<string, { line: number; bars: readonly (readonly [number, number])[] }>;
 
 /** A line at the target's edge or centre, with two bars lined up with it. */
-function AlignIcon({ at, vertical }: { at: IconAt; vertical: boolean }) {
+function AlignIcon({ axis, at }: AlignAction["icon"]) {
   const { line, bars } = ICON_SHAPES[at];
   return (
     <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
-      {/* A vertical icon is the horizontal one mirrored across the diagonal, which swaps x and y. */}
-      <g fill="currentColor" transform={vertical ? "matrix(0 1 1 0 0 0)" : undefined}>
+      {/* Moving up or down, the icon is the one for moving across mirrored over the diagonal, which swaps x and y. */}
+      <g fill="currentColor" transform={axis === "y" ? "matrix(0 1 1 0 0 0)" : undefined}>
         <rect x={line} y={2} width={1} height={12} />
         {bars.map(([left, width], i) => (
           <rect key={i} x={left} y={i === 0 ? 4 : 9} width={width} height={3} rx={0.5} />

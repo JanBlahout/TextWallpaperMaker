@@ -149,9 +149,10 @@ describe("quick align and undo", () => {
     editor.deselect();
 
     editor.align("left");
-    editor.undo();
 
-    expect(blockPosition(editor)).toEqual({ x: 54, y: 709.2 });
+    expect(blockPosition(editor)).toEqual(OFF_ALIGNMENT);
+    // The only step to undo is the move off every alignment.
+    editor.undo();
     expect(editor.getView().canUndo).toBe(false);
   });
 });

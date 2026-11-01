@@ -5,7 +5,10 @@ import type { Box, Editor } from "@/editor";
 import { useEditor, useView } from "./editorStore";
 import { QuickAlign } from "./QuickAlign";
 
-/** The right sidebar: properties of the selected text block, or a short hint when nothing is selected. */
+/**
+ * The right sidebar: properties of the selected text block, or a short hint
+ * when nothing is selected, then the quick-align actions.
+ */
 export function Inspector() {
   const editor = useEditor();
   const selection = useView()?.selection ?? null;

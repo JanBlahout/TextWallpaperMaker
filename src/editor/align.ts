@@ -36,6 +36,6 @@ export function alignTargetOf(
 export function alignedPosition(box: Box, target: Box, position: AlignPosition): Point {
   const { axis, at } = ALIGNMENTS[position];
   const size = SIZE_ALONG[axis];
-  const lined = target[axis] + at * (target[size] - box[size]);
-  return axis === "x" ? { x: lined, y: box.y } : { x: box.x, y: lined };
+  const alignedStart = target[axis] + at * (target[size] - box[size]);
+  return axis === "x" ? { x: alignedStart, y: box.y } : { x: box.x, y: alignedStart };
 }
