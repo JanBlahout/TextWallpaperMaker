@@ -1,4 +1,5 @@
 export {
+  type ChangeOptions,
   createEditor,
   DEFAULT_SETTINGS,
   DEFAULT_TYPOGRAPHY,
@@ -7,6 +8,7 @@ export {
   type EditorOptions,
   type EditorView,
 } from "./editor";
+export { parseHexColor } from "./color";
 export { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
 export { blockLines, letterSpacingPx, type TextMeasurement, type TextMeasurer } from "./textMeasurer";
 export { SAFE_MARGINS } from "./model";

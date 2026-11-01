@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import { BackgroundControls } from "./BackgroundControls";
 import { ExportButton } from "./ExportButton";
 import { startEditor, useEditor, useEditorStore, useSettings, useView, useWallpaper } from "./editorStore";
 import { GuideSettings } from "./GuideSettings";
+import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 import { WallpaperCanvas } from "./WallpaperCanvas";
 
 export function EditorApp() {
+  const editor = useEditor();
   useEffect(() => {
     void startEditor();
   }, []);
+  useKeyboardShortcuts(editor);
 
   return (
     <>
@@ -36,6 +40,7 @@ function LeftSidebar() {
         <AppTitle />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {editor && wallpaper && <BackgroundControls editor={editor} wallpaper={wallpaper} />}
         {editor && settings && <GuideSettings editor={editor} settings={settings} />}
       </div>
       <footer className="border-t border-neutral-800 p-4">

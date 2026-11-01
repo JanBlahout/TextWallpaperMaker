@@ -1,4 +1,6 @@
+import { parseHexColor } from "./color";
 import { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
+import { createHistory } from "./history";
 import type { Box, EditorSettings, TextBlock, Typography, Wallpaper } from "./model";
 import type { TextMeasurer } from "./textMeasurer";
 
@@ -7,7 +9,13 @@ export interface EditorOptions {
   measurer: TextMeasurer;
 }
 
-/** What the UI reads: everything derived from the wallpaper and the editor settings. */
+/** How a wallpaper change is recorded in the undo history. */
+export interface ChangeOptions {
+  /** Show the change without recording an undo step yet; a later commit records it. */
+  preview?: boolean;
+}
+
+/** What the UI reads: everything derived from the wallpaper, the editor settings and the undo history. */
 export interface EditorView {
   /** Each block's box, measured from its text, in drawing order. */
   blocks: { id: string; box: Box }[];
@@ -17,11 +25,16 @@ export interface EditorView {
   grid: Grid;
   /** The lines through the wallpaper's centre. */
   centreLines: CentreLines;
+  /** Whether there is a wallpaper change to undo. */
+  canUndo: boolean;
+  /** Whether there is an undone wallpaper change to redo. */
+  canRedo: boolean;
 }
 
 /**
- * The editor core: owns the wallpaper and the editor settings. Plain TypeScript
- * with no React or browser APIs, so it can be tested on its own.
+ * The editor core: owns the wallpaper, the editor settings and the undo
+ * history. Plain TypeScript with no React or browser APIs, so it can be tested
+ * on its own.
  */
 export interface Editor {
   getWallpaper(): Wallpaper;
@@ -29,6 +42,18 @@ export interface Editor {
   getView(): EditorView;
   /** Changes editor settings. They aren't part of the wallpaper, so this is never an undo step. */
   setSettings(changes: Partial<EditorSettings>): void;
+  /**
+   * Sets the wallpaper's background colour from a hex colour as typed or picked
+   * ("#RRGGBB" or "#RGB"; see `parseHexColor`). Anything else is ignored. A
+   * commit makes everything since the last undo step one step; `{ preview: true }`
+   * shows the colour without recording a step yet, e.g. while moving around
+   * inside a colour picker.
+   */
+  setBackground(hex: string, options?: ChangeOptions): void;
+  /** Reverts the latest wallpaper change. */
+  undo(): void;
+  /** Re-applies the latest undone wallpaper change. */
+  redo(): void;
   /** Calls `listener` after every change; returns a function that stops it. */
   subscribe(listener: () => void): () => void;
 }
@@ -79,16 +104,29 @@ function startingWallpaper(measurer: TextMeasurer, settings: EditorSettings): Wa
   return { resolution, background: "#000000", blocks: [block] };
 }
 
+/** Wallpapers are plain data built the same way, so equal ones serialise identically. */
+function sameWallpaper(a: Wallpaper, b: Wallpaper) {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function createEditor({ measurer }: EditorOptions): Editor {
   let settings = DEFAULT_SETTINGS;
-  const wallpaper = startingWallpaper(measurer, settings);
+  const history = createHistory(startingWallpaper(measurer, settings), sameWallpaper);
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
 
+  /** Every wallpaper change goes through here, so each one lands in the undo history. */
+  function change(next: Wallpaper, { preview = false }: ChangeOptions = {}) {
+    if (preview) history.preview(next);
+    else history.commit(next);
+    changed();
+  }
+
   return {
-    getWallpaper: () => wallpaper,
+    getWallpaper: () => history.present,
     getSettings: () => settings,
     getView: () => {
+      const wallpaper = history.present;
       const safeArea = safeAreaOf(wallpaper.resolution, settings.safeMargin);
       return {
         blocks: wallpaper.blocks.map((block) => {
@@ -98,6 +136,8 @@ export function createEditor({ measurer }: EditorOptions): Editor {
         safeArea,
         grid: gridOf(safeArea, settings.gridColumns),
         centreLines: centreLinesOf(wallpaper.resolution),
+        canUndo: history.canUndo,
+        canRedo: history.canRedo,
       };
     },
     setSettings: (changes) => {
@@ -105,6 +145,19 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       // A column count that isn't a number can't make a grid, so it's ignored.
       next.gridColumns = Number.isNaN(next.gridColumns) ? settings.gridColumns : clampGridColumns(next.gridColumns);
       settings = next;
+      changed();
+    },
+    setBackground: (hex, options) => {
+      const background = parseHexColor(hex);
+      if (background === null) return;
+      change({ ...history.present, background }, options);
+    },
+    undo: () => {
+      history.undo();
+      changed();
+    },
+    redo: () => {
+      history.redo();
       changed();
     },
     subscribe: (listener) => {
