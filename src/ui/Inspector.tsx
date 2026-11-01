@@ -2,12 +2,13 @@
 
 import { useId, useState } from "react";
 import type { Box, Editor } from "@/editor";
+import { BlockActions } from "./BlockActions";
 import { useEditor, useView } from "./editorStore";
 import { QuickAlign } from "./QuickAlign";
 
 /**
  * The right sidebar: properties of the selected text block, or a short hint
- * when nothing is selected, then the quick-align actions.
+ * when nothing is selected, then the quick-align actions, then Duplicate and Delete.
  */
 export function Inspector() {
   const editor = useEditor();
@@ -25,6 +26,7 @@ export function Inspector() {
         <p className="mt-3 text-xs text-neutral-500">Select a text block to edit its text, typography and position.</p>
       )}
       <QuickAlign />
+      <BlockActions />
     </aside>
   );
 }
