@@ -30,34 +30,50 @@ export interface MovingLines {
 }
 
 const ALL_LINES: readonly BoxLine[] = ["start", "centre", "end"];
+const EDGES: readonly BoxLine[] = ["start", "end"];
 
 /** Every line of the box: a dragged block snaps by its left, centre and right, and its top, middle and bottom. */
 export const WHOLE_BOX: MovingLines = { x: ALL_LINES, y: ALL_LINES };
 
-/** A line to snap to: at `position` across its axis, running from `from` to `to` along it, in wallpaper px. */
-export interface SnapLine {
-  position: number;
+type Axis = "x" | "y";
+
+/** A vertical line or a horizontal one. */
+export type Orientation = "vertical" | "horizontal";
+
+/** A vertical line sits at an x and runs down (along y); a horizontal one sits at a y and runs across (along x). */
+const AXES = {
+  vertical: { at: "x", along: "y" },
+  horizontal: { at: "y", along: "x" },
+} as const satisfies Record<Orientation, { at: Axis; along: Axis }>;
+
+const ORIENTATIONS: readonly Orientation[] = ["vertical", "horizontal"];
+
+/** Where a line runs from and to along its length, in wallpaper px. */
+interface Span {
   from: number;
   to: number;
 }
 
-/** Everything a moving box can snap to: vertical lines (at an x) and horizontal lines (at a y). */
-export interface SnapTargets {
-  vertical: SnapLine[];
-  horizontal: SnapLine[];
+/** A line a moving box can snap to: at `position` across its axis, running along `from` to `to`. */
+export interface SnapTarget extends Span {
+  position: number;
 }
+
+/** Everything a moving box can snap to: vertical lines (at an x) and horizontal lines (at a y). */
+export type SnapTargets = Record<Orientation, SnapTarget[]>;
 
 /**
  * A temporary guide that shows what a moving block lines up with: a vertical
  * line at x = `position` or a horizontal one at y = `position`, running along
- * the block and what it lines up with.
+ * both the block and what it lines up with.
  */
-export interface SmartGuide extends SnapLine {
-  orientation: "vertical" | "horizontal";
+export interface SmartGuide extends Span {
+  orientation: Orientation;
+  position: number;
 }
 
-/** The wallpaper's structure, as the editor view describes it. */
-export interface WallpaperStructure {
+/** Where the guides run: the safe area, the grid on it and the centre lines, on a wallpaper of this resolution. */
+export interface GuideGeometry {
   resolution: Resolution;
   safeArea: Box;
   grid: Grid;
@@ -67,39 +83,34 @@ export interface WallpaperStructure {
 /**
  * What a block can snap to: the grid lines while the grid is visible, the
  * safe-area edges and centre lines while the safe-area guides are visible,
- * and the edges and centres of `otherBlocks`.
+ * and the edges and centres of `otherBlocks`. Each target runs along what it
+ * belongs to: grid lines and safe-area edges along the safe area, centre lines
+ * along the whole wallpaper, and a block's lines along that block.
  */
 export function snapTargets(
-  { resolution, safeArea, grid, centreLines }: WallpaperStructure,
+  { resolution, safeArea, grid, centreLines }: GuideGeometry,
   visibility: Pick<EditorSettings, "gridVisible" | "safeAreaVisible">,
   otherBlocks: Box[],
 ): SnapTargets {
-  const across = { from: safeArea.y, to: safeArea.y + safeArea.height };
-  const down = { from: safeArea.x, to: safeArea.x + safeArea.width };
   const targets: SnapTargets = { vertical: [], horizontal: [] };
+  const add = (orientation: Orientation, positions: number[], runningAlong: Box) => {
+    const span = spanOf(runningAlong, AXES[orientation].along);
+    targets[orientation].push(...positions.map((position) => ({ position, ...span })));
+  };
+  const wallpaper = { x: 0, y: 0, ...resolution };
 
   if (visibility.gridVisible) {
-    targets.vertical.push(...grid.verticalLines.map((position) => ({ position, ...across })));
-    targets.horizontal.push(...grid.horizontalLines.map((position) => ({ position, ...down })));
+    add("vertical", grid.verticalLines, safeArea);
+    add("horizontal", grid.horizontalLines, safeArea);
   }
   if (visibility.safeAreaVisible) {
-    // The safe-area edges run along the safe area, and the centre lines across the whole wallpaper.
-    targets.vertical.push(
-      { position: safeArea.x, ...across },
-      { position: safeArea.x + safeArea.width, ...across },
-      { position: centreLines.vertical, from: 0, to: resolution.height },
-    );
-    targets.horizontal.push(
-      { position: safeArea.y, ...down },
-      { position: safeArea.y + safeArea.height, ...down },
-      { position: centreLines.horizontal, from: 0, to: resolution.width },
-    );
+    add("vertical", linesOf(safeArea, "x", EDGES), safeArea);
+    add("horizontal", linesOf(safeArea, "y", EDGES), safeArea);
+    add("vertical", [centreLines.vertical], wallpaper);
+    add("horizontal", [centreLines.horizontal], wallpaper);
   }
   for (const block of otherBlocks) {
-    const along = { from: block.y, to: block.y + block.height };
-    const across = { from: block.x, to: block.x + block.width };
-    targets.vertical.push(...linesOf(block, "x", ALL_LINES).map((position) => ({ position, ...along })));
-    targets.horizontal.push(...linesOf(block, "y", ALL_LINES).map((position) => ({ position, ...across })));
+    for (const orientation of ORIENTATIONS) add(orientation, linesOf(block, AXES[orientation].at, ALL_LINES), block);
   }
   return targets;
 }
@@ -140,22 +151,19 @@ export function snapDraggedBox(box: Box, targets: SnapTargets, distance: number)
 
 /**
  * The smart guides for a box: one along every target that one of its moving
- * lines lies on, running across both the box and the target.
+ * lines lies on, running along both the box and the target.
  */
 export function smartGuidesFor(box: Box, moving: MovingLines, targets: SnapTargets): SmartGuide[] {
-  return [
-    ...guidesAlong("vertical", linesOf(box, "x", moving.x), targets.vertical, { from: box.y, to: box.y + box.height }),
-    ...guidesAlong("horizontal", linesOf(box, "y", moving.y), targets.horizontal, {
-      from: box.x,
-      to: box.x + box.width,
-    }),
-  ];
+  return ORIENTATIONS.flatMap((orientation) => {
+    const { at, along } = AXES[orientation];
+    return guidesAlong(orientation, linesOf(box, at, moving[at]), targets[orientation], spanOf(box, along));
+  });
 }
 
 /** How far apart a line and a target can be and still count as lined up: floating-point noise, far below a pixel. */
 const LINED_UP = 1e-6;
 
-function closestShift(lines: number[], targets: SnapLine[], distance: number): number | null {
+function closestShift(lines: number[], targets: SnapTarget[], distance: number): number | null {
   let best: number | null = null;
   for (const line of lines) {
     for (const { position } of targets) {
@@ -166,12 +174,8 @@ function closestShift(lines: number[], targets: SnapLine[], distance: number): n
   return best;
 }
 
-function guidesAlong(
-  orientation: SmartGuide["orientation"],
-  lines: number[],
-  targets: SnapLine[],
-  box: { from: number; to: number },
-): SmartGuide[] {
+/** One guide per target position that a line lies on, running along `box` and every target there. */
+function guidesAlong(orientation: Orientation, lines: number[], targets: SnapTarget[], box: Span): SmartGuide[] {
   // Targets at the same position (a grid line on a safe-area edge, say) make one guide.
   const guides = new Map<number, SmartGuide>();
   for (const target of targets) {
@@ -186,9 +190,13 @@ function guidesAlong(
   return [...guides.values()];
 }
 
+/** Where a box runs along one axis: from its start edge to its end edge. */
+function spanOf(box: Box, axis: Axis): Span {
+  return axis === "x" ? { from: box.x, to: box.x + box.width } : { from: box.y, to: box.y + box.height };
+}
+
 /** Where a box's lines are on one axis. */
-function linesOf(box: Box, axis: "x" | "y", lines: readonly BoxLine[]): number[] {
-  const start = axis === "x" ? box.x : box.y;
-  const length = axis === "x" ? box.width : box.height;
-  return lines.map((line) => ({ start, centre: start + length / 2, end: start + length })[line]);
+function linesOf(box: Box, axis: Axis, lines: readonly BoxLine[]): number[] {
+  const { from, to } = spanOf(box, axis);
+  return lines.map((line) => ({ start: from, centre: from + (to - from) / 2, end: to })[line]);
 }

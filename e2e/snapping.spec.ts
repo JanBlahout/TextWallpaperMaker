@@ -1,9 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const WALLPAPER_CANVAS = 'canvas[aria-label="Wallpaper canvas"]';
-const WALLPAPER = { width: 1920, height: 1080 };
-/** The space the fitted view keeps around the wallpaper, in CSS px (FIT_PADDING in WallpaperCanvas). */
-const FIT_PADDING = 40;
+/** The starting wallpaper's width in wallpaper px. */
+const WALLPAPER_WIDTH = 1920;
 
 /**
  * Drags the starting block towards the vertical centre line, 2 screen px past
@@ -57,22 +56,30 @@ test("a block dragged near the centre line snaps onto it, with a smart guide unt
   });
 });
 
-test("holding Ctrl during a drag, or turning Snapping off, moves the block freely", async ({ page }) => {
+test("holding Ctrl during a drag, or turning Snapping off, lets the block move freely", async ({ page }) => {
   await page.goto("/");
   const x = positionField(page, "X");
   const guides = page.getByTestId("guides");
   const snapping = page.getByRole("checkbox", { name: "Snapping" });
   await expect(snapping).toBeChecked();
 
-  await test.step("with Ctrl held, the block follows the pointer past the centre line", async () => {
+  await test.step("pressing Ctrl mid-drag unsnaps the block at once, back under the pointer", async () => {
     const { centred, pointer } = await dragTowardsCentreLine(page);
-    await expect.poll(async () => Math.abs(Number(await x.inputValue()) - centred)).toBeLessThanOrEqual(0.01);
-    // A pointer move with Ctrl held unsnaps the block.
+    const isCentred = async () => Math.abs(Number(await x.inputValue()) - centred) <= 0.01;
+    await expect.poll(isCentred).toBe(true);
+
     await page.keyboard.down("Control");
-    await page.mouse.move(pointer.x + 1, pointer.y);
     await expect.poll(async () => Number(await x.inputValue())).toBeGreaterThan(centred + 1);
-    expect(await smartGuidePixels(guides)).toBe(0);
-    await page.keyboard.up("Control");
+    await expect.poll(() => smartGuidePixels(guides)).toBe(0);
+
+    await test.step("it moves freely while Ctrl is held, and snaps again once it's let go", async () => {
+      await page.mouse.move(pointer.x + 1, pointer.y);
+      await expect.poll(async () => Number(await x.inputValue())).toBeGreaterThan(centred + 3);
+      expect(await smartGuidePixels(guides)).toBe(0);
+      await page.keyboard.up("Control");
+      await expect.poll(isCentred).toBe(true);
+    });
+
     await page.mouse.up();
     await page.keyboard.press("ControlOrMeta+z");
     await expect(x).toHaveValue("54");
@@ -95,10 +102,20 @@ function positionField(page: Page, name: "X" | "Y") {
   return inspector(page).getByRole("spinbutton", { name, exact: true });
 }
 
-/** Screen (CSS) px per wallpaper px in the fitted view: the wallpaper as large as fits inside the padding. */
-async function screenPxPerWallpaperPx(canvas: Locator) {
-  const { width, height } = (await canvas.boundingBox())!;
-  return Math.min((width - 2 * FIT_PADDING) / WALLPAPER.width, (height - 2 * FIT_PADDING) / WALLPAPER.height);
+/**
+ * Screen (CSS) px per wallpaper px, measured from how wide the wallpaper is
+ * drawn: across the canvas's middle row (no text there), only the wallpaper
+ * is opaque.
+ */
+function screenPxPerWallpaperPx(canvas: Locator) {
+  return canvas.evaluate((element: HTMLCanvasElement, wallpaperWidth) => {
+    const { width, height } = element;
+    const row = element.getContext("2d")!.getImageData(0, Math.floor(height / 2), width, 1).data;
+    let drawn = 0;
+    for (let i = 3; i < row.length; i += 4) if (row[i] > 127) drawn++;
+    const canvasPxPerCssPx = width / element.getBoundingClientRect().width;
+    return drawn / canvasPxPerCssPx / wallpaperWidth;
+  }, WALLPAPER_WIDTH);
 }
 
 /** A screen point (CSS px) in the middle of the drawn text, once it's drawn. */

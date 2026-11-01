@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createEditor, DEFAULT_SETTINGS, DEFAULT_TYPOGRAPHY, type Editor, type EditorSettings, type Point } from "./index";
-import { serialise } from "./serialisation";
+import {
+  createEditor,
+  DEFAULT_TYPOGRAPHY,
+  type Editor,
+  type EditorSettings,
+  type Point,
+  type SnapOptions,
+} from "./index";
 import { fakeTextMeasurer } from "./testing/fakeTextMeasurer";
 
 /**
@@ -31,19 +37,18 @@ function editorWith(positions: BlockAt[], settings: Partial<EditorSettings> = {}
     lineHeight: 1,
     ...position,
   }));
-  editor.load(
-    serialise({
-      wallpaper: { resolution: { width: 1920, height: 1080 }, background: "#000000", blocks },
-      settings: { ...DEFAULT_SETTINGS, ...settings },
-    }),
-  );
+  // The starting wallpaper, saved, with these blocks and settings in place.
+  const saved = JSON.parse(editor.serialise());
+  saved.wallpaper.blocks = blocks;
+  Object.assign(saved.settings, settings);
+  editor.load(JSON.stringify(saved));
   const [first] = positions;
   editor.selectAt({ x: first.x + 1, y: first.y + 1 });
   return editor;
 }
 
 /** Starts dragging the selected block and moves the pointer by `offset`, leaving the drag open. */
-function dragBy(editor: Editor, offset: Point, options?: Parameters<Editor["updateMove"]>[1]) {
+function dragBy(editor: Editor, offset: Point, options?: SnapOptions) {
   const { box } = editor.getView().selection!;
   const grab = { x: box.x + 10, y: box.y + 10 };
   editor.beginMove(grab);
@@ -209,6 +214,17 @@ describe("hidden guides", () => {
     dragBy(editor, { x: 437, y: 243 }, { viewScale: 1 });
 
     expect(selectedPosition(editor)).toEqual({ x: 837, y: 493 });
+    expect(editor.getView().smartGuides).toEqual([]);
+  });
+
+  it("aren't snapped to: with the safe-area guides hidden too, a block moves freely past the safe-area edges", () => {
+    const editor = editorWith([{ x: 400, y: 250 }], { gridVisible: false, safeAreaVisible: false });
+
+    // The left edge moves to 56, 2 px right of the safe area's left edge, and
+    // the bottom edge to 1023, 3 px above its bottom edge.
+    dragBy(editor, { x: -344, y: 673 }, { viewScale: 1 });
+
+    expect(selectedPosition(editor)).toEqual({ x: 56, y: 923 });
     expect(editor.getView().smartGuides).toEqual([]);
   });
 });

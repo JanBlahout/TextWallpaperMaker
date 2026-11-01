@@ -120,8 +120,11 @@ export interface Editor {
   /**
    * Moves the dragged block by how far the pointer has moved since
    * `beginMove`, in whole wallpaper px. While snapping is on and not bypassed,
-   * the block then snaps to what's in reach (see `snapTargets`), and the view
-   * reports smart guides for what it lines up with.
+   * the block's left, centre and right then snap to the closest vertical
+   * target within 6 screen px, and its top, middle and bottom to the closest
+   * horizontal one: grid lines while the grid is visible, safe-area edges and
+   * centre lines while the safe-area guides are, and other blocks' edges and
+   * centres. The view reports smart guides for what it lines up with.
    */
   updateMove(point: Point, options?: SnapOptions): void;
   /** Finishes the drag, recording it as one undo step if the block moved. */
@@ -261,8 +264,8 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     return history.present.blocks.find(({ id }) => id === selectedId);
   }
 
-  /** The wallpaper's safe area, grid and centre lines under the current settings. */
-  function structure() {
+  /** Where the guides run under the current settings. */
+  function guideGeometry() {
     const { resolution } = history.present;
     const safeArea = safeAreaOf(resolution, settings.safeMargin);
     return { resolution, safeArea, grid: gridOf(safeArea, settings.gridColumns), centreLines: centreLinesOf(resolution) };
@@ -332,7 +335,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       const boxes = blockBoxes();
       const start = boxes.find(({ id }) => id === block.id)!.box;
       const others = boxes.filter(({ id }) => id !== block.id).map(({ box }) => box);
-      const targets = snapTargets(structure(), settings, others);
+      const targets = snapTargets(guideGeometry(), settings, others);
       startGesture({ kind: "move", id: block.id, grab: point, start, targets, guides: [] });
     },
     updateMove: (point, { viewScale, bypassSnapping = false } = {}) => {
