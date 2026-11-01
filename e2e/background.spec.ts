@@ -20,17 +20,15 @@ test("a background colour typed in the hex field shows on the canvas and in the 
     await expect(hexField).toHaveValue("#000000");
   });
 
-  await test.step("a valid hex colour applies on Enter, to the canvas and the export", async () => {
+  await test.step("a valid hex colour applies to the canvas on Enter", async () => {
     await hexField.fill("#1e3a5f");
     await hexField.press("Enter");
     await expect(hexField).toHaveValue("#1E3A5F");
     await expectCanvasBackground(page, NAVY);
-    expect(await exportedPixel(page, { x: 0, y: 0 })).toEqual(NAVY);
   });
 
-  await test.step("Cmd/Ctrl+Z undoes it and Cmd/Ctrl+Shift+Z redoes it", async () => {
-    // Outside a text field, so the shortcuts reach the editor rather than undoing typing.
-    await hexField.blur();
+  await test.step("Cmd/Ctrl+Z straight after Enter undoes it, and Cmd/Ctrl+Shift+Z redoes it", async () => {
+    // Enter leaves the field, so the shortcut reaches the editor rather than undoing typing.
     await page.keyboard.press("ControlOrMeta+z");
     await expect(hexField).toHaveValue("#000000");
     await expectCanvasBackground(page, BLACK);
@@ -38,6 +36,10 @@ test("a background colour typed in the hex field shows on the canvas and in the 
     await page.keyboard.press("ControlOrMeta+Shift+z");
     await expect(hexField).toHaveValue("#1E3A5F");
     await expectCanvasBackground(page, NAVY);
+  });
+
+  await test.step("the export has the background colour", async () => {
+    expect(await exportedPixel(page, { x: 0, y: 0 })).toEqual(NAVY);
   });
 });
 

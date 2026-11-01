@@ -16,8 +16,9 @@ interface ColorFieldProps {
 
 /**
  * A colour picker plus a hex field. Moving around inside the picker previews;
- * releasing or closing it commits. The hex field commits on Enter or when it
- * loses focus, and goes back to the current colour if its text was rejected.
+ * releasing or closing it commits. The hex field commits when it loses focus,
+ * which Enter also does, and goes back to the current colour if its text was
+ * rejected. Escape discards what was typed.
  */
 export function ColorField({ label, value, onPreview, onCommit }: ColorFieldProps) {
   const pickerRef = useRef<HTMLInputElement>(null);
@@ -59,7 +60,8 @@ export function ColorField({ label, value, onPreview, onCommit }: ColorFieldProp
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commitDraft}
         onKeyDown={(event) => {
-          if (event.key === "Enter") commitDraft();
+          // Leaving the field commits, and lets Cmd/Ctrl+Z undo the change straight away.
+          if (event.key === "Enter") event.currentTarget.blur();
           else if (event.key === "Escape") setDraft(null);
         }}
         className="h-7 w-full min-w-0 rounded border border-neutral-700 bg-neutral-950 px-2 font-mono text-xs text-neutral-200 uppercase outline-none focus:border-neutral-500 aria-invalid:border-red-500/60"
