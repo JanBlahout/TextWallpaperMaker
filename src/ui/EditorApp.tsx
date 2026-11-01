@@ -1,0 +1,85 @@
+"use client";
+
+import { useEffect, type ReactNode } from "react";
+import { ExportButton } from "./ExportButton";
+import { startEditor, useEditorStore, useWallpaper } from "./editorStore";
+import { WallpaperCanvas } from "./WallpaperCanvas";
+
+export function EditorApp() {
+  useEffect(() => {
+    void startEditor();
+  }, []);
+
+  return (
+    <>
+      <LargerScreenMessage />
+      <div className="hidden h-dvh grid-cols-[240px_minmax(0,1fr)_260px] bg-neutral-950 text-neutral-300 lg:grid">
+        <LeftSidebar />
+        <main className="min-w-0 bg-neutral-950">
+          <CanvasArea />
+        </main>
+        <Inspector />
+      </div>
+    </>
+  );
+}
+
+function LeftSidebar() {
+  const wallpaper = useWallpaper();
+
+  return (
+    <aside className="flex min-h-0 flex-col border-r border-neutral-800 bg-neutral-900">
+      <header className="border-b border-neutral-800 px-4 py-3">
+        <AppTitle />
+      </header>
+      <div className="flex-1" />
+      <footer className="border-t border-neutral-800 p-4">
+        <ExportButton wallpaper={wallpaper} />
+      </footer>
+    </aside>
+  );
+}
+
+function CanvasArea() {
+  const phase = useEditorStore((state) => state.phase);
+  const wallpaper = useWallpaper();
+  const error = useEditorStore((state) => state.error);
+
+  if (phase === "failed") {
+    return <CenteredNote>{error}</CenteredNote>;
+  }
+  if (!wallpaper) {
+    return <CenteredNote>Loading…</CenteredNote>;
+  }
+  return <WallpaperCanvas wallpaper={wallpaper} />;
+}
+
+function Inspector() {
+  return (
+    <aside className="border-l border-neutral-800 bg-neutral-900 px-4 py-3">
+      <h2 className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">Inspector</h2>
+      <p className="mt-3 text-xs text-neutral-500">Select a text block to edit its text, typography and position.</p>
+    </aside>
+  );
+}
+
+function AppTitle() {
+  return <h1 className="text-xs font-semibold tracking-wide text-neutral-100 uppercase">Text Wallpaper Maker</h1>;
+}
+
+function CenteredNote({ children }: { children: ReactNode }) {
+  return <div className="flex h-full items-center justify-center text-xs text-neutral-500">{children}</div>;
+}
+
+function LargerScreenMessage() {
+  return (
+    <div className="flex h-dvh items-center justify-center bg-neutral-950 p-8 text-center lg:hidden">
+      <div className="max-w-xs">
+        <AppTitle />
+        <p className="mt-3 text-sm text-neutral-400">
+          Please use a larger screen. The editor needs a desktop-sized window to design wallpapers.
+        </p>
+      </div>
+    </div>
+  );
+}
