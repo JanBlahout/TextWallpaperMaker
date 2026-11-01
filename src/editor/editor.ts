@@ -1,9 +1,18 @@
 import { parseHexColor } from "./color";
 import { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
 import { createHistory } from "./history";
-import type { Box, EditorSettings, Resolution, TextBlock, Typography, Wallpaper } from "./model";
+import {
+  GRID_COLUMNS_RANGE,
+  type Box,
+  type EditorSettings,
+  type Resolution,
+  type TextBlock,
+  type Typography,
+  type Wallpaper,
+} from "./model";
 import { refit } from "./refit";
 import { clampResolution, sameResolution } from "./resolution";
+import { deserialise, serialise } from "./serialisation";
 import type { TextMeasurer } from "./textMeasurer";
 
 export interface EditorOptions {
@@ -62,6 +71,20 @@ export interface Editor {
   undo(): void;
   /** Re-applies the latest undone wallpaper change. */
   redo(): void;
+  /**
+   * Resets the wallpaper to the starting wallpaper as one undo step, so it
+   * needs no confirmation. The editor settings stay as they are, except that a
+   * change of resolution fits the view to the screen, as it always does.
+   */
+  newWallpaper(): void;
+  /** The wallpaper and editor settings in the saved format, for `load` to read back. */
+  serialise(): string;
+  /**
+   * Replaces the wallpaper and editor settings with saved ones and starts a
+   * fresh undo history. Missing (null), unreadable or unrecognised data loads
+   * the starting wallpaper and default editor settings instead.
+   */
+  load(saved: string | null): void;
   /** Calls `listener` after every change; returns a function that stops it. */
   subscribe(listener: () => void): () => void;
 }
@@ -89,9 +112,6 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   zoom: "fit",
   pan: { x: 0, y: 0 },
 };
-
-/** The range of grid column counts; a requested count is rounded and kept within it. */
-export const GRID_COLUMNS_RANGE = { min: 1, max: 48 } as const;
 
 /**
  * The example the editor opens on: "DISCIPLINE / EQUALS / FREEDOM." on a black
@@ -178,6 +198,18 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),
+    newWallpaper: () => {
+      const starting = startingWallpaper(measurer, settings);
+      if (!sameResolution(starting.resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
+      change(starting);
+    },
+    serialise: () => serialise({ wallpaper: history.present, settings }),
+    load: (saved) => {
+      const loaded = deserialise(saved);
+      settings = loaded?.settings ?? DEFAULT_SETTINGS;
+      history.reset(loaded?.wallpaper ?? startingWallpaper(measurer, settings));
+      changed();
+    },
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

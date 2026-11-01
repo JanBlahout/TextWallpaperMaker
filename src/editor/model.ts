@@ -3,7 +3,10 @@
  * Every length is in real wallpaper pixels (ADR 0001).
  */
 
-export type LineAlign = "left" | "center" | "right";
+/** How a text block's lines can line up inside its box. */
+export const LINE_ALIGNS = ["left", "center", "right"] as const;
+
+export type LineAlign = (typeof LINE_ALIGNS)[number];
 
 /** How a text block's text looks. Shared by blocks, measurement and rendering. */
 export interface Typography {
@@ -63,8 +66,14 @@ export const SAFE_MARGINS = [5, 8, 10] as const;
 /** The safe margin as a percentage of the wallpaper's shorter side. */
 export type SafeMargin = (typeof SAFE_MARGINS)[number];
 
+/** The range of grid column counts; a requested count is rounded and kept within it. */
+export const GRID_COLUMNS_RANGE = { min: 1, max: 48 } as const;
+
+/** What the quick-align actions can align against. */
+export const ALIGN_TARGETS = ["safe-area", "wallpaper"] as const;
+
 /** What the quick-align actions align against. */
-export type AlignTarget = "safe-area" | "wallpaper";
+export type AlignTarget = (typeof ALIGN_TARGETS)[number];
 
 /** "fit" fits the wallpaper to the canvas; a number is a zoom factor (1 = 100%). */
 export type Zoom = "fit" | number;

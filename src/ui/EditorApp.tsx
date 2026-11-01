@@ -5,6 +5,7 @@ import { BackgroundControls } from "./BackgroundControls";
 import { ExportButton } from "./ExportButton";
 import { startEditor, useEditor, useEditorStore, useSettings, useView, useWallpaper } from "./editorStore";
 import { GuideSettings } from "./GuideSettings";
+import { NewWallpaperButton } from "./NewWallpaperButton";
 import { ResolutionControls } from "./ResolutionControls";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 import { WallpaperCanvas } from "./WallpaperCanvas";
@@ -45,7 +46,8 @@ function LeftSidebar() {
         {editor && wallpaper && <BackgroundControls editor={editor} wallpaper={wallpaper} />}
         {editor && settings && <GuideSettings editor={editor} settings={settings} />}
       </div>
-      <footer className="border-t border-neutral-800 p-4">
+      <footer className="flex flex-col gap-3 border-t border-neutral-800 p-4">
+        <NewWallpaperButton editor={editor} />
         <ExportButton wallpaper={wallpaper} />
       </footer>
     </aside>
