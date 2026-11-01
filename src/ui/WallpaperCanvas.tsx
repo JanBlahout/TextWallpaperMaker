@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
-import type { EditorSettings, EditorView, Resolution, Wallpaper } from "@/editor";
+import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import type { Editor, EditorSettings, EditorView, Point, Resolution, Wallpaper } from "@/editor";
 import { loadFontsFor } from "@/render/fontLoading";
 import { renderWallpaper, type RenderTransform } from "@/render/renderWallpaper";
 import { drawGuides } from "./drawGuides";
+import { drawOverlay } from "./drawOverlay";
 import { fitWallpaper, type Size } from "./fitWallpaper";
 
 /** Space kept around the fitted wallpaper, in CSS px. */
@@ -15,6 +16,7 @@ interface CanvasSize extends Size {
 }
 
 interface WallpaperCanvasProps {
+  editor: Editor;
   wallpaper: Wallpaper;
   view: EditorView;
   settings: EditorSettings;
@@ -23,14 +25,18 @@ interface WallpaperCanvasProps {
 /**
  * The on-screen canvas: as big as the space it sits in (not the wallpaper),
  * drawing the wallpaper through the renderer fitted to that space, at the
- * device pixel ratio so it stays sharp on high-DPI screens. The guides are
- * drawn on a separate layer above it, which export never sees (ADR 0003).
+ * device pixel ratio so it stays sharp on high-DPI screens. The guides and
+ * the overlay (overflow wash and selection box) are drawn on separate layers
+ * above it, which export never sees (ADR 0003). Pressing on a block selects
+ * it and dragging moves it; pressing on empty canvas deselects.
  */
-export function WallpaperCanvas({ wallpaper, view, settings }: WallpaperCanvasProps) {
+export function WallpaperCanvas({ editor, wallpaper, view, settings }: WallpaperCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const guidesRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const size = useCanvasSize(containerRef);
+  const dragging = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -64,8 +70,62 @@ export function WallpaperCanvas({ wallpaper, view, settings }: WallpaperCanvasPr
     drawGuides(ctx, { resolution, view, visibility: settings }, canvasTransform(resolution, canvas, dpr), dpr);
   }, [resolution, view, settings, size]);
 
+  const selection = view.selection?.box ?? null;
+  useEffect(() => {
+    const canvas = overlayRef.current;
+    if (!canvas || !size || size.width === 0 || size.height === 0) return;
+    const ctx = resizeCanvas(canvas, size);
+    if (!ctx) return;
+    const dpr = size.devicePixelRatio;
+    drawOverlay(ctx, { resolution, selection }, canvasTransform(resolution, canvas, dpr), dpr);
+  }, [resolution, selection, size]);
+
+  /** The wallpaper point under the pointer, through the same transform the layers are drawn with. */
+  const wallpaperPoint = (event: PointerEvent): Point | null => {
+    const canvas = overlayRef.current;
+    if (!canvas || !size) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    // CSS px from the canvas's corner, to canvas px, to wallpaper px.
+    const canvasX = (event.clientX - rect.left) * (canvas.width / rect.width);
+    const canvasY = (event.clientY - rect.top) * (canvas.height / rect.height);
+    const { scale, offsetX, offsetY } = canvasTransform(resolution, canvas, size.devicePixelRatio);
+    return { x: (canvasX - offsetX) / scale, y: (canvasY - offsetY) / scale };
+  };
+
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const point = wallpaperPoint(event);
+    if (!point) return;
+    // Finish any inspector edit first, so it lands before the drag starts.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    editor.selectAt(point);
+    editor.beginMove(point);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragging.current = true;
+  };
+
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    const point = wallpaperPoint(event);
+    if (point) editor.updateMove(point);
+  };
+
+  const endDrag = () => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    editor.endMove();
+  };
+
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden">
+    <div
+      ref={containerRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      className="relative h-full w-full touch-none overflow-hidden select-none"
+    >
       <canvas
         ref={canvasRef}
         role="img"
@@ -76,6 +136,12 @@ export function WallpaperCanvas({ wallpaper, view, settings }: WallpaperCanvasPr
         ref={guidesRef}
         aria-hidden
         data-testid="guides"
+        className="pointer-events-none absolute inset-0 h-full w-full"
+      />
+      <canvas
+        ref={overlayRef}
+        aria-hidden
+        data-testid="overlay"
         className="pointer-events-none absolute inset-0 h-full w-full"
       />
     </div>

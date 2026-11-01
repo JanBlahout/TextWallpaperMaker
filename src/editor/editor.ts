@@ -5,6 +5,7 @@ import {
   GRID_COLUMNS_RANGE,
   type Box,
   type EditorSettings,
+  type Point,
   type Resolution,
   type TextBlock,
   type Typography,
@@ -26,10 +27,25 @@ export interface ChangeOptions {
   preview?: boolean;
 }
 
-/** What the UI reads: everything derived from the wallpaper, the editor settings and the undo history. */
+export type NudgeDirection = "left" | "right" | "up" | "down";
+
+/** How far one nudge moves a block, in wallpaper px: arrow keys take a small step, Shift+arrow a large one. */
+export const NUDGE_STEPS = { small: 1, large: 10 } as const;
+
+export type NudgeStep = keyof typeof NUDGE_STEPS;
+
+/** A text block's id with its box, measured from its text. */
+export interface BlockBox {
+  id: string;
+  box: Box;
+}
+
+/** What the UI reads: everything derived from the wallpaper, the editor settings, the selection and the undo history. */
 export interface EditorView {
   /** Each block's box, measured from its text, in drawing order. */
-  blocks: { id: string; box: Box }[];
+  blocks: BlockBox[];
+  /** The selected block, or null when nothing is selected. */
+  selection: BlockBox | null;
   /** The region inside the safe margin. */
   safeArea: Box;
   /** The grid on the safe area. */
@@ -43,9 +59,9 @@ export interface EditorView {
 }
 
 /**
- * The editor core: owns the wallpaper, the editor settings and the undo
- * history. Plain TypeScript with no React or browser APIs, so it can be tested
- * on its own.
+ * The editor core: owns the wallpaper, the editor settings, the selection and
+ * the undo history. Plain TypeScript with no React or browser APIs, so it can
+ * be tested on its own.
  */
 export interface Editor {
   getWallpaper(): Wallpaper;
@@ -67,6 +83,35 @@ export interface Editor {
    * RESOLUTION_RANGE first; a side that isn't a number is ignored.
    */
   setResolution(resolution: Resolution): void;
+  /**
+   * What clicking the canvas does: selects the topmost block whose box
+   * contains `point` (in wallpaper px), or deselects when there's none.
+   * Selection is never an undo step.
+   */
+  selectAt(point: Point): void;
+  /** Clears the selection, as Escape does. Never an undo step. */
+  deselect(): void;
+  /**
+   * Starts dragging the selected block, grabbed at `point` (in wallpaper px).
+   * Does nothing when nothing is selected. The block follows each
+   * `updateMove`, and `endMove` makes the whole drag one undo step.
+   */
+  beginMove(point: Point): void;
+  /** Moves the dragged block by how far the pointer has moved since `beginMove`, in whole wallpaper px. */
+  updateMove(point: Point): void;
+  /** Finishes the drag, recording it as one undo step if the block moved. */
+  endMove(): void;
+  /**
+   * Moves the selected block one step in `direction`. Does nothing when nothing
+   * is selected. A run of consecutive nudges is one undo step.
+   */
+  nudge(direction: NudgeDirection, step?: NudgeStep): void;
+  /**
+   * Moves the selected block so its box's top-left corner is at the given X
+   * and/or Y (in wallpaper px), as typed in the inspector: one undo step. A
+   * coordinate that isn't a finite number is ignored.
+   */
+  setPosition(position: Partial<Point>): void;
   /** Reverts the latest wallpaper change. */
   undo(): void;
   /** Re-applies the latest undone wallpaper change. */
@@ -140,11 +185,26 @@ function sameWallpaper(a: Wallpaper, b: Wallpaper) {
 export function createEditor({ measurer }: EditorOptions): Editor {
   let settings = DEFAULT_SETTINGS;
   const history = createHistory(startingWallpaper(measurer, settings), sameWallpaper);
+  /** The selected block's id. Session-only: never part of the wallpaper or the undo history. */
+  let selectedId: string | null = null;
+  /** The drag in progress: the block, where the pointer grabbed it, and where the block started. */
+  let move: { id: string; grab: Point; start: Point } | null = null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
 
+  /** Whether a run of nudges is open: they're previewed, and become one undo step when it ends. */
+  let nudging = false;
+
+  /** Every command but a nudge ends an open run of nudges, recording the run as one undo step. */
+  function endNudges() {
+    if (!nudging) return;
+    nudging = false;
+    history.commit(history.present);
+  }
+
   /** Every wallpaper change goes through here, so each one lands in the undo history. */
   function change(next: Wallpaper, { preview = false }: ChangeOptions = {}) {
+    endNudges();
     if (preview) history.preview(next);
     else history.commit(next);
     changed();
@@ -152,10 +212,22 @@ export function createEditor({ measurer }: EditorOptions): Editor {
 
   /** Undoes or redoes. Landing on another resolution fits the view to the screen, as changing it does. */
   function stepThroughHistory(move: () => void) {
+    endNudges();
     const { resolution } = history.present;
     move();
     if (!sameResolution(resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
     changed();
+  }
+
+  function selectedBlock(): TextBlock | undefined {
+    return history.present.blocks.find(({ id }) => id === selectedId);
+  }
+
+  function blockBoxes(): BlockBox[] {
+    return history.present.blocks.map((block) => {
+      const { width, height } = measurer.measure(block);
+      return { id: block.id, box: { x: block.x, y: block.y, width, height } };
+    });
   }
 
   return {
@@ -164,11 +236,10 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     getView: () => {
       const wallpaper = history.present;
       const safeArea = safeAreaOf(wallpaper.resolution, settings.safeMargin);
+      const blocks = blockBoxes();
       return {
-        blocks: wallpaper.blocks.map((block) => {
-          const { width, height } = measurer.measure(block);
-          return { id: block.id, box: { x: block.x, y: block.y, width, height } };
-        }),
+        blocks,
+        selection: blocks.find(({ id }) => id === selectedId) ?? null,
         safeArea,
         grid: gridOf(safeArea, settings.gridColumns),
         centreLines: centreLinesOf(wallpaper.resolution),
@@ -177,6 +248,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       };
     },
     setSettings: (changes) => {
+      endNudges();
       const next = { ...settings, ...changes };
       // A column count that isn't a number can't make a grid, so it's ignored.
       next.gridColumns = Number.isNaN(next.gridColumns) ? settings.gridColumns : clampGridColumns(next.gridColumns);
@@ -195,6 +267,57 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       if (sameResolution(resolution, history.present.resolution)) return;
       settings = { ...settings, zoom: "fit" };
       change(refit(history.present, resolution, { safeMargin: settings.safeMargin, measurer }));
+    },
+    selectAt: (point) => {
+      endNudges();
+      // Later blocks draw on top, so the last one under the point wins.
+      selectedId = blockBoxes().findLast(({ box }) => contains(box, point))?.id ?? null;
+      changed();
+    },
+    deselect: () => {
+      endNudges();
+      selectedId = null;
+      changed();
+    },
+    beginMove: (point) => {
+      endNudges();
+      const block = selectedBlock();
+      move = block ? { id: block.id, grab: point, start: { x: block.x, y: block.y } } : null;
+    },
+    updateMove: (point) => {
+      if (!move) return;
+      const { id, grab, start } = move;
+      // Whole wallpaper pixels, like nudges, so positions stay tidy at any zoom.
+      const offset = { x: Math.round(point.x - grab.x), y: Math.round(point.y - grab.y) };
+      change(withPosition(history.present, id, { x: start.x + offset.x, y: start.y + offset.y }), { preview: true });
+    },
+    endMove: () => {
+      if (!move) return;
+      move = null;
+      change(history.present);
+    },
+    nudge: (direction, step = "small") => {
+      const block = selectedBlock();
+      if (!block) return;
+      const distance = NUDGE_STEPS[step];
+      const { x, y } = block;
+      const position = {
+        left: { x: x - distance, y },
+        right: { x: x + distance, y },
+        up: { x, y: y - distance },
+        down: { x, y: y + distance },
+      }[direction];
+      history.preview(withPosition(history.present, block.id, position));
+      nudging = true;
+      changed();
+    },
+    setPosition: (position) => {
+      const block = selectedBlock();
+      if (!block) return;
+      // A coordinate that isn't a finite number (an emptied field) is ignored.
+      const typed = (value: number | undefined, current: number) =>
+        value !== undefined && Number.isFinite(value) ? value : current;
+      change(withPosition(history.present, block.id, { x: typed(position.x, block.x), y: typed(position.y, block.y) }));
     },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),
@@ -215,6 +338,19 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       return () => listeners.delete(listener);
     },
   };
+}
+
+/** The wallpaper with one block moved so its box's top-left corner is at `position`. */
+function withPosition(wallpaper: Wallpaper, id: string, position: Point): Wallpaper {
+  return {
+    ...wallpaper,
+    blocks: wallpaper.blocks.map((block) => (block.id === id ? { ...block, ...position } : block)),
+  };
+}
+
+/** Whether `point` is inside `box` or on its edge. */
+function contains(box: Box, point: Point) {
+  return point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height;
 }
 
 /** Rounds a column count to a whole number and keeps it within GRID_COLUMNS_RANGE. */
