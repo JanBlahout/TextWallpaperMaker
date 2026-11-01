@@ -5,11 +5,13 @@ import {
   toScreen,
   toWallpaper,
   viewportOf,
+  type Corner,
   type Editor,
   type EditorSettings,
   type EditorView,
   type Point,
   type Size,
+  type SnapOptions,
   type Viewport,
   type Wallpaper,
 } from "@/editor";
@@ -17,6 +19,7 @@ import { loadFontsFor } from "@/render/fontLoading";
 import { renderWallpaper, type RenderTransform } from "@/render/renderWallpaper";
 import { drawGuides } from "./drawGuides";
 import { drawOverlay } from "./drawOverlay";
+import { handleAt, handleCursor } from "./handles";
 import { InPlaceTextEditor, type ScreenPoint } from "./InPlaceTextEditor";
 import { screenPointOf, useCanvasNavigation } from "./useCanvasNavigation";
 import { ZoomControls } from "./ZoomControls";
@@ -40,8 +43,9 @@ interface WallpaperCanvasProps {
  * the overlay (overflow wash and selection box) are drawn on separate layers
  * above it, which export never sees (ADR 0003). Pressing on a block selects
  * it and dragging moves it, snapping unless Ctrl is held; pressing on empty
- * canvas deselects. Double-clicking a block opens its text for editing in
- * place, in a text field on top. Zooming and panning are in `useCanvasNavigation`.
+ * canvas deselects. Dragging a corner handle of the selected block scales it.
+ * Double-clicking a block opens its text for editing in place, in a text
+ * field on top. Zooming and panning are in `useCanvasNavigation`.
  */
 export function WallpaperCanvas({ editor, wallpaper, view, settings }: WallpaperCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -49,7 +53,10 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   const guidesRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const size = useCanvasSize(containerRef);
-  const dragging = useRef(false);
+  /** The drag in progress: moving the block, or scaling it by a corner handle. */
+  const drag = useRef<Drag | null>(null);
+  /** The corner handle under the pointer, for the cursor. */
+  const [hoveredHandle, setHoveredHandle] = useState<Corner | null>(null);
   /** The drag's latest pointer position and view scale, to re-snap from when Ctrl changes. */
   const lastMove = useRef<{ point: Point; viewScale?: number } | null>(null);
   /** Where the block being edited was double-clicked, for the text field to open there. */
@@ -105,6 +112,12 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
     return viewport && screen && toWallpaper(viewport, screen);
   };
 
+  /** The selected block's corner handle under the pointer, found on screen through the viewport, or null. */
+  const handleUnder = (event: PointerEvent<HTMLDivElement>) => {
+    const screen = viewport && screenPointOf(event.currentTarget, viewport.canvas, event);
+    return viewport && screen && view.selection ? handleAt(viewport, view.selection.box, screen) : null;
+  };
+
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if (navigation.beginPan(event)) return;
@@ -112,35 +125,45 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
     if (!point) return;
     // Finish any inspector edit first, so it lands before the drag starts.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    editor.selectAt(point);
-    editor.beginMove(point);
+    const handle = handleUnder(event);
+    if (handle) {
+      editor.beginScale(handle, point);
+    } else {
+      editor.selectAt(point);
+      editor.beginMove(point);
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
-    dragging.current = true;
+    drag.current = handle ? "scale" : "move";
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (navigation.updatePan(event) || !dragging.current) return;
+    if (navigation.updatePan(event)) return;
+    if (!drag.current) {
+      setHoveredHandle(handleUnder(event));
+      return;
+    }
     const point = wallpaperPoint(event);
     if (!point) return;
-    // Screen px per wallpaper px, so a drag snaps within the same 6 screen px at any zoom.
+    // Screen px per wallpaper px, so a drag or a scale snaps within the same 6 screen px at any zoom.
     const viewScale = viewport?.zoom;
     lastMove.current = { point, viewScale };
-    editor.updateMove(point, { viewScale, bypassSnapping: event.ctrlKey });
+    updateDrag(editor, drag.current, point, { viewScale, bypassSnapping: event.ctrlKey });
   };
 
   const endDrag = () => {
-    if (navigation.endPan() || !dragging.current) return;
-    dragging.current = false;
+    if (navigation.endPan() || !drag.current) return;
+    if (drag.current === "scale") editor.endScale();
+    else editor.endMove();
+    drag.current = null;
     lastMove.current = null;
-    editor.endMove();
   };
 
   // Pressing or letting go of Ctrl mid-drag unsnaps or re-snaps the block at once, without waiting for the pointer.
   useEffect(() => {
     const onControl = (event: KeyboardEvent) => {
       const last = lastMove.current;
-      if (event.key !== "Control" || event.repeat || !dragging.current || !last) return;
-      editor.updateMove(last.point, { viewScale: last.viewScale, bypassSnapping: event.ctrlKey });
+      if (event.key !== "Control" || event.repeat || !drag.current || !last) return;
+      updateDrag(editor, drag.current, last.point, { viewScale: last.viewScale, bypassSnapping: event.ctrlKey });
     };
     window.addEventListener("keydown", onControl);
     window.addEventListener("keyup", onControl);
@@ -170,7 +193,8 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
       // On macOS, Ctrl held as the button goes down would open a context menu and break off the drag.
       onContextMenu={(event) => event.preventDefault()}
       onDoubleClick={onDoubleClick}
-      className={`relative h-full w-full touch-none overflow-hidden select-none ${navigation.cursor}`}
+      // Panning's hand cursor wins over a handle's diagonal arrow.
+      className={`relative h-full w-full touch-none overflow-hidden select-none ${navigation.cursor || handleCursor(view.selection && hoveredHandle)}`}
     >
       <canvas
         ref={canvasRef}
@@ -203,6 +227,15 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
       {viewport && <ZoomControls editor={editor} viewport={viewport} />}
     </div>
   );
+}
+
+/** What a drag on the canvas does: moves the block, or scales it when it began on a corner handle. */
+type Drag = "move" | "scale";
+
+/** Carries a drag on. */
+function updateDrag(editor: Editor, drag: Drag, point: Point, options: SnapOptions) {
+  if (drag === "scale") editor.updateScale(point, options);
+  else editor.updateMove(point, options);
 }
 
 /** Sizes a layer above the wallpaper to the canvas and draws it through the transform every layer shares. */

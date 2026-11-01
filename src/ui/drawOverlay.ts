@@ -1,5 +1,6 @@
 import type { Box, Resolution } from "@/editor";
 import type { RenderTransform } from "@/render/renderWallpaper";
+import { drawHandles } from "./handles";
 
 /**
  * The canvas surround's colour (Tailwind's neutral-950), mostly opaque: it
@@ -19,7 +20,8 @@ export interface OverlayToDraw {
  * Draws the overlay layer, which sits above the guides and is never exported
  * (ADR 0003): a wash over everything outside the wallpaper, so the part of a
  * block past its edge shows faded (the export crops it), then the selected
- * block's bounding box, 1 CSS px wide on whole device pixels.
+ * block's bounding box, 1 CSS px wide on whole device pixels, with a handle
+ * at each corner.
  */
 export function drawOverlay(
   ctx: CanvasRenderingContext2D,
@@ -48,18 +50,18 @@ export function drawOverlay(
     const lineWidth = Math.max(1, Math.round(pixelRatio));
     // Centres a line of `lineWidth` device px on whole pixels.
     const crisp = (position: number) => Math.round(position - lineWidth / 2) + lineWidth / 2;
-    const boxLeft = crisp(toX(selection.x));
-    const boxTop = crisp(toY(selection.y));
+    const drawn = {
+      left: crisp(toX(selection.x)),
+      top: crisp(toY(selection.y)),
+      right: crisp(toX(selection.x + selection.width)),
+      bottom: crisp(toY(selection.y + selection.height)),
+    };
     ctx.beginPath();
-    ctx.rect(
-      boxLeft,
-      boxTop,
-      crisp(toX(selection.x + selection.width)) - boxLeft,
-      crisp(toY(selection.y + selection.height)) - boxTop,
-    );
+    ctx.rect(drawn.left, drawn.top, drawn.right - drawn.left, drawn.bottom - drawn.top);
     ctx.lineWidth = lineWidth;
     ctx.strokeStyle = SELECTION_COLOUR;
     ctx.stroke();
+    drawHandles(ctx, drawn, SELECTION_COLOUR, pixelRatio);
   }
   ctx.restore();
 }

@@ -13,6 +13,7 @@ export {
 export { type AlignPosition } from "./align";
 export { parseHexColor } from "./color";
 export { refit, type RefitOptions } from "./refit";
+export { CORNERS, cornerOf, type Corner } from "./scaling";
 export { PRESET_GROUPS, presetFor, RESOLUTION_RANGE, sameResolution, type Preset } from "./resolution";
 export { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
 export type { SmartGuide, SnapOptions } from "./snapping";
