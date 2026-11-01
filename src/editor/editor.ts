@@ -1,3 +1,4 @@
+import { alignedPosition, alignTargetOf, type AlignPosition } from "./align";
 import { parseHexColor } from "./color";
 import { centreLinesOf, gridOf, safeAreaOf, type CentreLines, type Grid } from "./geometry";
 import { createHistory } from "./history";
@@ -120,6 +121,13 @@ export interface Editor {
    * coordinate that isn't a finite number is ignored.
    */
   setPosition(position: Partial<Point>): void;
+  /**
+   * Quick align: lines the selected block's box up with the align target in
+   * the editor settings (the safe area or the whole wallpaper), as one undo
+   * step. Left, centre and right move it across; top, middle and bottom move
+   * it up or down. Does nothing when nothing is selected.
+   */
+  align(position: AlignPosition): void;
   /** Reverts the latest wallpaper change. */
   undo(): void;
   /** Re-applies the latest undone wallpaper change. */
@@ -339,6 +347,12 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       change(
         withPosition(history.present, block.id, { x: finiteOr(block.x, position.x), y: finiteOr(block.y, position.y) }),
       );
+    },
+    align: (position) => {
+      const selection = blockBoxes().find(({ id }) => id === selectedId);
+      if (!selection) return;
+      const target = alignTargetOf(history.present.resolution, settings);
+      change(withPosition(history.present, selection.id, alignedPosition(selection.box, target, position)));
     },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),
