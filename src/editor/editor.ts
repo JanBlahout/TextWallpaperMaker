@@ -437,8 +437,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     setTypography: (changes, options) => {
       const block = selectedBlock();
       if (!block) return;
-      const next = withTypography(block, changes);
-      change({ ...history.present, blocks: history.present.blocks.map((b) => (b.id === block.id ? next : b)) }, options);
+      change(withBlock(history.present, block.id, (current) => withTypography(current, changes)), options);
     },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),
@@ -466,10 +465,12 @@ export function createEditor({ measurer }: EditorOptions): Editor {
 
 /** The wallpaper with one block moved so its box's top-left corner is at `position`. */
 function withPosition(wallpaper: Wallpaper, id: string, position: Point): Wallpaper {
-  return {
-    ...wallpaper,
-    blocks: wallpaper.blocks.map((block) => (block.id === id ? { ...block, ...position } : block)),
-  };
+  return withBlock(wallpaper, id, (block) => ({ ...block, ...position }));
+}
+
+/** The wallpaper with one block replaced by `update`'s version of it. */
+function withBlock(wallpaper: Wallpaper, id: string, update: (block: TextBlock) => TextBlock): Wallpaper {
+  return { ...wallpaper, blocks: wallpaper.blocks.map((block) => (block.id === id ? update(block) : block)) };
 }
 
 /** A block id the wallpaper doesn't use yet, like "block-2". */

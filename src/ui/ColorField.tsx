@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { parseHexColor } from "@/editor";
+import { useNativeChange } from "./useNativeChange";
 
 interface ColorFieldProps {
   /** Names the colour for assistive tech, e.g. "Background colour". */
@@ -25,15 +26,7 @@ export function ColorField({ label, value, onPreview, onCommit }: ColorFieldProp
   /** The hex field's text while it's being edited; null shows the current colour. */
   const [draft, setDraft] = useState<string | null>(null);
 
-  // React's onChange fires on every `input` event. The native `change` event
-  // fires once the picker is released or closed: that's the commit.
-  useEffect(() => {
-    const picker = pickerRef.current;
-    if (!picker) return;
-    const commit = () => onCommit(picker.value);
-    picker.addEventListener("change", commit);
-    return () => picker.removeEventListener("change", commit);
-  }, [onCommit]);
+  useNativeChange(pickerRef, (picker) => onCommit(picker.value));
 
   const commitDraft = () => {
     if (draft !== null) onCommit(draft);

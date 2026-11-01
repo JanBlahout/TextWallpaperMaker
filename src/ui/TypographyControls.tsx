@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { LINE_ALIGNS, type Editor, type LineAlign, type TextBlock } from "@/editor";
 import { FONTS, fontById } from "@/fonts/registry";
 import { ColorField } from "./ColorField";
 import { useWallpaper } from "./editorStore";
 import { NumberField } from "./NumberField";
+import { Toggle } from "./Toggle";
+import { useNativeChange } from "./useNativeChange";
 
 const WEIGHT_NAMES: Partial<Record<number, string>> = {
   100: "Thin",
@@ -32,13 +34,9 @@ const SELECT_CLASSES =
  */
 export function TypographyControls({ editor, blockId }: { editor: Editor; blockId: string }) {
   const block = useWallpaper()?.blocks.find(({ id }) => id === blockId);
-  const previewColor = useCallback((color: string) => editor.setTypography({ color }, { preview: true }), [editor]);
-  const commitColor = useCallback((color: string) => editor.setTypography({ color }), [editor]);
-  const previewOpacity = useCallback((opacity: number) => editor.setTypography({ opacity }, { preview: true }), [editor]);
-  const commitOpacity = useCallback((opacity: number) => editor.setTypography({ opacity }), [editor]);
-
   if (!block) return null;
   const { weights } = fontById(block.fontId);
+  const commitOpacity = (opacity: number) => editor.setTypography({ opacity });
 
   return (
     <section className="mt-3 flex flex-col gap-2">
@@ -116,12 +114,21 @@ export function TypographyControls({ editor, blockId }: { editor: Editor; blockI
       <LineAlignControl editor={editor} block={block} />
 
       <Row label="Colour">
-        <ColorField label="Text colour" value={block.color} onPreview={previewColor} onCommit={commitColor} />
+        <ColorField
+          label="Text colour"
+          value={block.color}
+          onPreview={(color) => editor.setTypography({ color }, { preview: true })}
+          onCommit={(color) => editor.setTypography({ color })}
+        />
       </Row>
 
       <Row label="Opacity">
         <div className="flex items-center gap-2">
-          <OpacitySlider value={block.opacity} onPreview={previewOpacity} onCommit={commitOpacity} />
+          <OpacitySlider
+            value={block.opacity}
+            onPreview={(opacity) => editor.setTypography({ opacity }, { preview: true })}
+            onCommit={commitOpacity}
+          />
           <div className="w-16 shrink-0">
             <NumberField
               label="Opacity percentage"
@@ -137,15 +144,9 @@ export function TypographyControls({ editor, blockId }: { editor: Editor; blockI
         </div>
       </Row>
 
-      <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-400 hover:text-neutral-200">
-        <input
-          type="checkbox"
-          checked={block.uppercase}
-          onChange={(event) => editor.setTypography({ uppercase: event.target.checked })}
-          className="size-3.5 cursor-pointer accent-neutral-300"
-        />
+      <Toggle checked={block.uppercase} onChange={(uppercase) => editor.setTypography({ uppercase })}>
         Uppercase
-      </label>
+      </Toggle>
     </section>
   );
 }
@@ -217,16 +218,7 @@ function OpacitySlider({
   onCommit: (opacity: number) => void;
 }) {
   const sliderRef = useRef<HTMLInputElement>(null);
-
-  // React's onChange fires on every `input` event. The native `change` event
-  // fires once the slider is released: that's the commit.
-  useEffect(() => {
-    const slider = sliderRef.current;
-    if (!slider) return;
-    const commit = () => onCommit(slider.valueAsNumber);
-    slider.addEventListener("change", commit);
-    return () => slider.removeEventListener("change", commit);
-  }, [onCommit]);
+  useNativeChange(sliderRef, (slider) => onCommit(slider.valueAsNumber));
 
   return (
     <input

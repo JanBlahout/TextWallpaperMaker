@@ -78,12 +78,17 @@ export const FONTS: readonly FontEntry[] = [
   },
 ];
 
+/** Looks up a font that may not exist, such as one named in saved data or a command. */
+export function findFont(id: string): FontEntry | undefined {
+  return FONTS.find((entry) => entry.id === id);
+}
+
 /**
  * Looks up a font. An unknown id is a bug: loading saved data is what turns
  * unrecognised data into the starting wallpaper, so it never reaches here.
  */
 export function fontById(id: string): FontEntry {
-  const font = FONTS.find((entry) => entry.id === id);
+  const font = findFont(id);
   if (!font) throw new Error(`Unknown font id "${id}"`);
   return font;
 }

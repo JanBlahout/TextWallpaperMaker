@@ -1,4 +1,4 @@
-import { FONTS } from "@/fonts/registry";
+import { findFont } from "@/fonts/registry";
 import { parseHexColor } from "./color";
 import {
   ALIGN_TARGETS,
@@ -72,7 +72,7 @@ function readResolution(value: unknown): Resolution {
 
 function readBlock(value: unknown): TextBlock {
   const block = readRecord(value);
-  const font = FONTS.find(({ id }) => id === block.fontId) ?? unrecognised();
+  const font = (typeof block.fontId === "string" && findFont(block.fontId)) || unrecognised();
   return {
     id: readString(block.id, (id) => id.length > 0),
     text: readString(block.text),

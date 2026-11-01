@@ -1,4 +1,4 @@
-import { FONTS, fontById } from "@/fonts/registry";
+import { findFont, fontById } from "@/fonts/registry";
 import { parseHexColor } from "./color";
 import { LINE_ALIGNS, type TextBlock, type Typography } from "./model";
 
@@ -16,7 +16,7 @@ export function withTypography(block: TextBlock, changes: Partial<Typography>): 
   const next = { ...block };
   const { fontId, fontWeight, fontSize, letterSpacing, lineHeight, align, color, opacity, uppercase } = changes;
 
-  const font = FONTS.find(({ id }) => id === fontId);
+  const font = fontId === undefined ? undefined : findFont(fontId);
   if (font) {
     next.fontId = font.id;
     next.fontWeight = nearestWeight(font.weights, next.fontWeight);

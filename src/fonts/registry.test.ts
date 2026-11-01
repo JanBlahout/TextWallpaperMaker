@@ -16,6 +16,7 @@ describe("the font registry", () => {
   it("names the Google fonts as Next.js generated them, without the resized Arial that Next.js adds as a fallback", () => {
     const inter = FONTS.find(({ id }) => id === "inter");
 
-    expect(inter?.family).toBe("'Inter', sans-serif");
+    // Next.js's own fallback, which follows the generated name, is an Arial resized to match.
+    expect(inter?.family).toBe("'__Inter_5f2a1c', sans-serif");
   });
 });

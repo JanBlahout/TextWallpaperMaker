@@ -155,6 +155,18 @@ describe("uppercase", () => {
   });
 });
 
+describe("characters a font lacks", () => {
+  it("stay in the text as typed: OCR A has no en dash, em dash or ellipsis, and switching to it changes none", () => {
+    const editor = editorWithTextSelected("WAIT – NO — GO…");
+
+    editor.setTypography({ fontId: "inter" });
+    editor.setTypography({ fontId: "ocr-a" });
+
+    expect(startingBlock(editor).text).toBe("WAIT – NO — GO…");
+    expect(blockLines(startingBlock(editor))).toEqual(["WAIT – NO — GO…"]);
+  });
+});
+
 describe("the font weight", () => {
   it.each([
     { from: "inter", weight: 900, to: "ibm-plex-mono", expected: 700 },
