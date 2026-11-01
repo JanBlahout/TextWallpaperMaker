@@ -14,6 +14,7 @@ import {
 } from "./model";
 import { refit } from "./refit";
 import { clampResolution, sameResolution } from "./resolution";
+import { scaleByDrag, type Corner, type Scale } from "./scaling";
 import { deserialise, serialise } from "./serialisation";
 import {
   snapDistance,
@@ -51,11 +52,13 @@ const DUPLICATE_OFFSET = 0.02;
 /**
  * A gesture in progress: a drag (the block, where the pointer grabbed it,
  * where its box started, what it can snap to and the smart guides showing),
- * a run of nudges, or a session of editing a block's text in place. Each is
- * one undo step.
+ * a scale by a corner handle (the same, plus the corner and the block as it
+ * started), a run of nudges, or a session of editing a block's text in place.
+ * Each is one undo step.
  */
 type Gesture =
   | { kind: "move"; id: string; grab: Point; start: Box; targets: SnapTargets; guides: SmartGuide[] }
+  | ({ kind: "scale"; grab: Point; targets: SnapTargets; guides: SmartGuide[] } & Scale)
   | { kind: "nudge" }
   | { kind: "edit"; id: string };
 
@@ -143,6 +146,24 @@ export interface Editor {
   updateMove(point: Point, options?: SnapOptions): void;
   /** Finishes the drag, recording it as one undo step if the block moved. */
   endMove(): void;
+  /**
+   * Starts scaling the selected block by its `corner` handle, grabbed at
+   * `point` (in wallpaper px). Does nothing when nothing is selected. The
+   * block scales with each `updateScale`, and `endScale`, or any other
+   * command, makes the whole scale one undo step.
+   */
+  beginScale(corner: Corner, point: Point): void;
+  /**
+   * Scales the block by how far the pointer has moved since `beginScale`, in
+   * whole wallpaper px, keeping the opposite corner of its box where it was
+   * (see `scaleByDrag`). The font size becomes the old size × new box width ÷
+   * old box width, which may be fractional, and never goes below 1 px. While
+   * snapping is on and not bypassed, the two moving edges snap to the same
+   * targets as a drag (see `updateMove`), and the view reports smart guides.
+   */
+  updateScale(point: Point, options?: SnapOptions): void;
+  /** Finishes the scale, recording it as one undo step if the block changed. */
+  endScale(): void;
   /**
    * Moves the selected block one step in `direction`. Does nothing when nothing
    * is selected. A run of consecutive nudges is one undo step, which any other
@@ -383,7 +404,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
         safeArea,
         grid: gridOf(safeArea, settings.gridColumns),
         centreLines: centreLinesOf(wallpaper.resolution),
-        smartGuides: gesture?.kind === "move" ? gesture.guides : [],
+        smartGuides: gesture?.kind === "move" || gesture?.kind === "scale" ? gesture.guides : [],
         canUndo: history.canUndo,
         canRedo: history.canRedo,
       };
@@ -450,6 +471,32 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     },
     endMove: () => {
       if (gesture?.kind !== "move") return;
+      endGesture();
+      changed();
+    },
+    beginScale: (corner, point) => {
+      endGesture();
+      const block = selectedBlock();
+      if (!block) return;
+      const boxes = blockBoxes();
+      const start = boxes.find(({ id }) => id === block.id)!.box;
+      const others = boxes.filter(({ id }) => id !== block.id).map(({ box }) => box);
+      const targets = snapTargets(guideGeometry(), settings, others);
+      startGesture({ kind: "scale", corner, block, grab: point, start, targets, guides: [] });
+    },
+    updateScale: (point, { viewScale, bypassSnapping = false } = {}) => {
+      if (gesture?.kind !== "scale") return;
+      const { grab, targets } = gesture;
+      // Whole wallpaper pixels, like a drag, so a still click leaves the block as it is.
+      const offset = { x: Math.round(point.x - grab.x), y: Math.round(point.y - grab.y) };
+      const snaps = settings.snapping && !bypassSnapping && (offset.x !== 0 || offset.y !== 0);
+      const snapping = snaps ? { targets, distance: snapDistance(viewScale) } : undefined;
+      const { block, guides } = scaleByDrag(gesture, offset, measurer, snapping);
+      gesture = { ...gesture, guides };
+      continueGesture(withBlock(history.present, block.id, () => block));
+    },
+    endScale: () => {
+      if (gesture?.kind !== "scale") return;
       endGesture();
       changed();
     },

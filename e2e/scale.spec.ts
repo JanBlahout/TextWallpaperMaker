@@ -1,0 +1,318 @@
+import { readFile } from "node:fs/promises";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { clickBlock, inspector, textBounds, waitForTextBounds, wallpaperCanvas } from "./support/blocks";
+
+/** The starting wallpaper's width in wallpaper px. */
+const WALLPAPER_WIDTH = 1920;
+/**
+ * How close a snapped edge's measured box lands to its target, in wallpaper
+ * px. The Editor's font size is exact, but Chromium resolves canvas font sizes
+ * to 0.01 px, so OCR A's measured width moves in steps of about 0.07 px (and
+ * the inspector rounds to 0.01).
+ */
+const SNAPPED = 0.1;
+
+type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+/** The selected block's box as the inspector shows it (to two decimals), and its font size (to one). */
+async function readBlock(page: Page) {
+  const field = (name: string) => inspector(page).getByRole("spinbutton", { name, exact: true });
+  const value = async (name: string) => Number(await field(name).inputValue());
+  return {
+    x: await value("X"),
+    y: await value("Y"),
+    width: await value("Width"),
+    height: await value("Height"),
+    fontSize: await value("Font size"),
+  };
+}
+
+test("dragging a corner handle scales the block about the opposite corner, and one undo puts it back", async ({
+  page,
+}) => {
+  await page.goto("/");
+  // Snapping off, so the handle follows the pointer exactly (the next test covers snapping).
+  await page.getByRole("checkbox", { name: "Snapping" }).uncheck();
+  const canvas = wallpaperCanvas(page);
+  await clickBlock(page);
+  const before = await readBlock(page);
+  const textBefore = await waitForTextBounds(canvas);
+  expect(before.fontSize).toBe(96);
+
+  // The starting block sits at the bottom-left of the safe area, so its top-right handle is free to drag.
+  const handle = await handleOnScreen(page, "top-right");
+  await test.step("the pointer over a handle shows a resize arrow", async () => {
+    await page.mouse.move(handle.x, handle.y);
+    await expect(canvasContainer(page)).toHaveCSS("cursor", "nesw-resize");
+  });
+
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 60, handle.y - 30, { steps: 4 });
+  await page.mouse.move(handle.x + 120, handle.y - 60, { steps: 4 });
+  await page.mouse.up();
+
+  await test.step("the font size grew, and the box grew with it, keeping its proportions", async () => {
+    await expect.poll(async () => (await readBlock(page)).fontSize).toBeGreaterThan(110);
+    const after = await readBlock(page);
+    const factor = after.fontSize / before.fontSize;
+    expect(after.width / before.width).toBeCloseTo(factor, 2);
+    expect(after.height / before.height).toBeCloseTo(factor, 2);
+  });
+
+  await test.step("the opposite (bottom-left) corner stayed where it was", async () => {
+    const after = await readBlock(page);
+    expect(after.x).toBe(before.x);
+    expect(Math.abs(after.y + after.height - (before.y + before.height))).toBeLessThanOrEqual(0.02);
+  });
+
+  // The drawn pixels' left and bottom shift slightly as the glyphs' side bearings scale, so only growth is checked here.
+  await test.step("the drawn text grew up and to the right", async () => {
+    await expect.poll(async () => (await textBounds(canvas))!.top).toBeLessThan(textBefore.top - 10);
+    expect((await textBounds(canvas))!.right).toBeGreaterThan(textBefore.right + 10);
+  });
+
+  await test.step("one undo puts the block back as it was", async () => {
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => readBlock(page)).toEqual(before);
+    await expect.poll(() => textBounds(canvas)).toEqual(textBefore);
+  });
+});
+
+test("a scaled edge snaps exactly onto the centre line, with a smart guide until the drop", async ({ page }) => {
+  await page.goto("/");
+  // With the grid hidden, the vertical centre line is the only target near the right edge's path.
+  await page.getByRole("checkbox", { name: "Show grid" }).uncheck();
+  const canvas = wallpaperCanvas(page);
+  const guides = page.getByTestId("guides");
+  await clickBlock(page);
+  const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
+  await x.fill("300");
+  await x.press("Enter");
+  await expect(x).toHaveValue("300");
+  const before = await readBlock(page);
+
+  // Along the box's diagonal, so the corner follows the pointer, to 2 screen px short of the centre line.
+  const scale = await screenPxPerWallpaperPx(canvas);
+  const growth = (960 - (before.x + before.width)) / before.width - 2 / scale / before.width;
+  const handle = await handleOnScreen(page, "top-right");
+  await page.mouse.move(handle.x, handle.y);
+  await page.mouse.down();
+  await page.mouse.move(
+    handle.x + Math.round(growth * before.width * scale),
+    handle.y - Math.round(growth * before.height * scale),
+    { steps: 6 },
+  );
+
+  await test.step("while scaling, the right edge is exactly on the centre line and a smart guide shows", async () => {
+    await expect
+      .poll(async () => {
+        const { x, width } = await readBlock(page);
+        return Math.abs(x + width - 960);
+      })
+      .toBeLessThanOrEqual(SNAPPED);
+    await expect.poll(() => smartGuidePixels(guides)).toBeGreaterThan(100);
+  });
+
+  await test.step("pressing Ctrl unsnaps the edge at once, back under the pointer, and letting go re-snaps it", async () => {
+    const rightEdge = async () => {
+      const { x, width } = await readBlock(page);
+      return x + width;
+    };
+    await page.keyboard.down("Control");
+    await expect.poll(rightEdge).toBeLessThan(960 - 1);
+    expect(await smartGuidePixels(guides)).toBe(0);
+    await page.keyboard.up("Control");
+    await expect.poll(async () => Math.abs((await rightEdge()) - 960)).toBeLessThanOrEqual(SNAPPED);
+  });
+
+  await test.step("the font size is the old size × the new width ÷ the old width, to one decimal", async () => {
+    const after = await readBlock(page);
+    expect(after.x).toBe(300);
+    expect(Math.abs(after.fontSize - (96 * (960 - 300)) / before.width)).toBeLessThanOrEqual(0.06);
+  });
+
+  await test.step("dropping keeps the size and removes the smart guide; one undo puts it back", async () => {
+    await page.mouse.up();
+    await expect.poll(() => smartGuidePixels(guides)).toBe(0);
+    const { x, width } = await readBlock(page);
+    expect(Math.abs(x + width - 960)).toBeLessThanOrEqual(SNAPPED);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => readBlock(page)).toEqual(before);
+  });
+});
+
+// Pointer positions go from CSS px to screen px to wallpaper px; a high-DPI
+// screen catches a conversion that forgets the device pixel ratio.
+for (const deviceScaleFactor of [1, 2]) {
+  test.describe(`at a device pixel ratio of ${deviceScaleFactor}`, () => {
+    test.use({ deviceScaleFactor });
+
+    test("zoomed in and panned, the handles are hit where they're drawn, and a scale snaps within 6 screen px at the real zoom", async ({
+      page,
+    }) => {
+      await page.goto("/");
+      // With the grid hidden, the vertical centre line is the only target near the right edge's path.
+      await page.getByRole("checkbox", { name: "Show grid" }).uncheck();
+      await clickBlock(page);
+      const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
+      await x.fill("300");
+      await x.press("Enter");
+      await expect(x).toHaveValue("300");
+      const before = await readBlock(page);
+
+      const zoom = await test.step("zoom in on the top-right handle with Ctrl+scroll, which pans to keep it under the pointer", async () => {
+        const fitted = await handleOnScreen(page, "top-right");
+        await page.mouse.move(fitted.x, fitted.y);
+        await page.keyboard.down("Control");
+        while ((await zoomPercent(page)) < 180) await page.mouse.wheel(0, -100);
+        await page.keyboard.up("Control");
+        return (await zoomPercent(page)) / 100;
+      });
+
+      await test.step("scroll, which pans the handle away from where it was drawn when fitted", async () => {
+        const zoomed = await handleOnScreen(page, "top-right");
+        await page.mouse.wheel(60, 80);
+        // Emulating a high-DPI screen, Chromium halves synthetic wheel deltas, so this only asks for a clear move.
+        await expect.poll(async () => (await handleOnScreen(page, "top-right")).y).toBeLessThan(zoomed.y - 30);
+      });
+
+      const handle = await handleOnScreen(page, "top-right");
+      await test.step("the pointer over the handle as drawn now shows a resize arrow", async () => {
+        await page.mouse.move(handle.x + 1, handle.y);
+        await page.mouse.move(handle.x, handle.y);
+        await expect(canvasContainer(page)).toHaveCSS("cursor", "nesw-resize");
+      });
+
+      // Along the box's diagonal, so the corner follows the pointer, to `short` screen px left of the centre line.
+      const pointerFor = (short: number) => {
+        const growth = (960 - short / zoom - (before.x + before.width)) / before.width;
+        return { x: handle.x + Math.round(growth * before.width * zoom), y: handle.y - Math.round(growth * before.height * zoom) };
+      };
+      const rightEdge = async () => {
+        const { x, width } = await readBlock(page);
+        return x + width;
+      };
+      await page.mouse.down();
+
+      await test.step("9 screen px short, which is in reach at the fitted zoom but not at this one, it doesn't snap", async () => {
+        const pointer = pointerFor(9);
+        await page.mouse.move(pointer.x, pointer.y, { steps: 6 });
+        await expect.poll(async () => Math.abs((await rightEdge()) - (960 - 9 / zoom))).toBeLessThanOrEqual(1);
+        expect(await smartGuidePixels(page.getByTestId("guides"))).toBe(0);
+      });
+
+      await test.step("2 screen px short, it snaps exactly onto the centre line, with the opposite corner fixed", async () => {
+        const pointer = pointerFor(2);
+        await page.mouse.move(pointer.x, pointer.y, { steps: 2 });
+        await expect.poll(async () => Math.abs((await rightEdge()) - 960)).toBeLessThanOrEqual(SNAPPED);
+        await expect.poll(() => smartGuidePixels(page.getByTestId("guides"))).toBeGreaterThan(100);
+        const after = await readBlock(page);
+        expect(after.x).toBe(300);
+        expect(Math.abs(after.y + after.height - (before.y + before.height))).toBeLessThanOrEqual(0.02);
+      });
+
+      await page.mouse.up();
+      await page.keyboard.press("ControlOrMeta+z");
+      await expect.poll(() => readBlock(page)).toEqual(before);
+    });
+  });
+}
+
+test("the selected block shows a handle at each corner, and the handles are never exported", async ({ page }) => {
+  await page.goto("/");
+  await waitForTextBounds(wallpaperCanvas(page));
+  const exportedUnselected = await exportPng(page);
+
+  await clickBlock(page);
+  const { x, y, width, height } = await readBlock(page);
+  const scale = await screenPxPerWallpaperPx(wallpaperCanvas(page));
+  const topLeft = await handleOnScreen(page, "top-left");
+  const bottomRight = await handleOnScreen(page, "bottom-right");
+  // The handles are as far apart on screen as the box's corners, to within a pixel or so.
+  expect(Math.abs(bottomRight.x - topLeft.x - width * scale)).toBeLessThanOrEqual(2);
+  expect(Math.abs(bottomRight.y - topLeft.y - height * scale)).toBeLessThanOrEqual(2);
+  expect(x).toBe(54);
+  expect(y).toBe(709.2);
+
+  expect((await exportPng(page)).equals(exportedUnselected)).toBe(true);
+});
+
+/** The zoom shown in the zoom controls, in percent. */
+async function zoomPercent(page: Page) {
+  return parseFloat((await page.getByRole("group", { name: "Zoom" }).getByTestId("zoom-level").textContent())!);
+}
+
+/** The element the canvas layers fill, which takes the pointer and shows its cursor. */
+function canvasContainer(page: Page) {
+  return wallpaperCanvas(page).locator("..");
+}
+
+/**
+ * The screen point (CSS px) at the middle of a corner handle, found from the
+ * handles' white squares on the overlay: the only white pixels it draws.
+ */
+async function handleOnScreen(page: Page, corner: Corner) {
+  const overlay = page.getByTestId("overlay");
+  const find = () =>
+    overlay.evaluate((element: HTMLCanvasElement, corner) => {
+      const { width, height } = element;
+      if (width === 0 || height === 0) return null;
+      const { data } = element.getContext("2d")!.getImageData(0, 0, width, height);
+      const white: { x: number; y: number }[] = [];
+      for (let i = 0; i < width * height; i++) {
+        if (data[i * 4] > 240 && data[i * 4 + 1] > 240 && data[i * 4 + 2] > 240 && data[i * 4 + 3] > 240) {
+          white.push({ x: i % width, y: Math.floor(i / width) });
+        }
+      }
+      if (white.length === 0) return null;
+      const middleX = (Math.min(...white.map(({ x }) => x)) + Math.max(...white.map(({ x }) => x))) / 2;
+      const middleY = (Math.min(...white.map(({ y }) => y)) + Math.max(...white.map(({ y }) => y))) / 2;
+      const [vertical, horizontal] = corner.split("-");
+      const inCorner = white.filter(
+        ({ x, y }) => (horizontal === "left" ? x < middleX : x > middleX) && (vertical === "top" ? y < middleY : y > middleY),
+      );
+      const xs = inCorner.map(({ x }) => x);
+      const ys = inCorner.map(({ y }) => y);
+      return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+    }, corner);
+  await expect.poll(find).not.toBeNull();
+  const centre = (await find())!;
+  const box = (await overlay.boundingBox())!;
+  const ratio = await overlay.evaluate((element: HTMLCanvasElement) => element.width / element.getBoundingClientRect().width);
+  return { x: Math.round(box.x + centre.x / ratio), y: Math.round(box.y + centre.y / ratio) };
+}
+
+/**
+ * Screen (CSS) px per wallpaper px, measured from how wide the wallpaper is
+ * drawn: across the canvas's middle row (no text there), only the wallpaper
+ * is opaque.
+ */
+function screenPxPerWallpaperPx(canvas: Locator) {
+  return canvas.evaluate((element: HTMLCanvasElement, wallpaperWidth) => {
+    const { width, height } = element;
+    const row = element.getContext("2d")!.getImageData(0, Math.floor(height / 2), width, 1).data;
+    let drawn = 0;
+    for (let i = 3; i < row.length; i += 4) if (row[i] > 127) drawn++;
+    const canvasPxPerCssPx = width / element.getBoundingClientRect().width;
+    return drawn / canvasPxPerCssPx / wallpaperWidth;
+  }, WALLPAPER_WIDTH);
+}
+
+/** How many pixels of the guides layer are the smart guides' rose: strongly red, little green. */
+function smartGuidePixels(guides: Locator): Promise<number> {
+  return guides.evaluate((element: HTMLCanvasElement) => {
+    if (element.width === 0 || element.height === 0) return 0;
+    const { data } = element.getContext("2d")!.getImageData(0, 0, element.width, element.height);
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i] > 200 && data[i + 1] < 120 && data[i + 3] > 200) count++;
+    return count;
+  });
+}
+
+async function exportPng(page: Page): Promise<Buffer> {
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: /Export Wallpaper/ }).click(),
+  ]);
+  return readFile(await download.path());
+}
