@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import type { Box, Editor } from "@/editor";
 import { BlockActions } from "./BlockActions";
+import { BlockTextField } from "./BlockTextField";
 import { useEditor, useView } from "./editorStore";
 import { QuickAlign } from "./QuickAlign";
 import { TypographyControls } from "./TypographyControls";
@@ -23,6 +24,7 @@ export function Inspector() {
       </h2>
       {editor && selection ? (
         <>
+          <BlockTextField key={selection.id} editor={editor} blockId={selection.id} />
           <TypographyControls editor={editor} blockId={selection.id} />
           <PositionFields editor={editor} box={selection.box} />
         </>
