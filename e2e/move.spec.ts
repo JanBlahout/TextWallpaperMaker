@@ -74,18 +74,11 @@ test("arrow keys nudge the selected block, Shift+arrow by 10 px, and Escape dese
     await expect(page.getByRole("spinbutton", { name: "Width" })).toHaveJSProperty("readOnly", true);
   });
 
-  await test.step("arrows move it 1 px and Shift+arrows 10 px, and the run is one undo step", async () => {
+  await test.step("an arrow nudges it 1 px and Shift+arrow 10 px", async () => {
     await page.keyboard.press("ArrowRight");
     await expect(x).toHaveValue("55");
     await page.keyboard.press("Shift+ArrowUp");
     await expect(y).toHaveValue("699.2");
-    await page.keyboard.press("ArrowLeft");
-    await page.keyboard.press("ArrowLeft");
-    await expect(x).toHaveValue("53");
-
-    await page.keyboard.press("ControlOrMeta+z");
-    await expect(x).toHaveValue("54");
-    await expect(y).toHaveValue("709.2");
   });
 
   await test.step("Escape deselects, and then arrows do nothing", async () => {
@@ -93,7 +86,7 @@ test("arrow keys nudge the selected block, Shift+arrow by 10 px, and Escape dese
     await expect(hint).toBeVisible();
     await page.keyboard.press("ArrowRight");
     await clickBlock(page, canvas);
-    await expect(x).toHaveValue("54");
+    await expect(x).toHaveValue("55");
   });
 
   await test.step("a typed X is applied on Enter and moves the drawn text", async () => {

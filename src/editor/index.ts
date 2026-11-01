@@ -4,7 +4,6 @@ export {
   createEditor,
   DEFAULT_SETTINGS,
   DEFAULT_TYPOGRAPHY,
-  NUDGE_STEPS,
   type Editor,
   type EditorOptions,
   type EditorView,

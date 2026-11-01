@@ -89,6 +89,54 @@ describe("dragging a text block", () => {
   });
 });
 
+describe("interrupting a drag", () => {
+  it("ends the drag at an undo, which undoes it as a whole; later pointer moves move nothing", () => {
+    const editor = editorWithBlockSelected();
+    editor.beginMove(INSIDE_STARTING_BLOCK);
+    editor.updateMove({ x: 200, y: 800 });
+
+    editor.undo();
+    editor.updateMove({ x: 300, y: 800 });
+    editor.endMove();
+
+    expect(startingBlockPosition(editor)).toEqual(START);
+    expect(editor.getView().canUndo).toBe(false);
+    editor.redo();
+    expect(startingBlockPosition(editor)).toEqual({ x: 154, y: START.y });
+  });
+
+  it("ends the drag at a nudge, so the drag and the nudge are one step each", () => {
+    const editor = editorWithBlockSelected();
+    editor.beginMove(INSIDE_STARTING_BLOCK);
+    editor.updateMove({ x: 200, y: 800 });
+
+    editor.nudge("right");
+    editor.updateMove({ x: 300, y: 800 });
+    editor.endMove();
+
+    expect(startingBlockPosition(editor)).toEqual({ x: 155, y: START.y });
+    editor.undo();
+    expect(startingBlockPosition(editor)).toEqual({ x: 154, y: START.y });
+    editor.undo();
+    expect(startingBlockPosition(editor)).toEqual(START);
+    expect(editor.getView().canUndo).toBe(false);
+  });
+
+  it("ends the drag at a deselect, leaving the block where it was dragged to", () => {
+    const editor = editorWithBlockSelected();
+    editor.beginMove(INSIDE_STARTING_BLOCK);
+    editor.updateMove({ x: 200, y: 800 });
+
+    editor.deselect();
+    editor.updateMove({ x: 300, y: 800 });
+    editor.endMove();
+
+    expect(startingBlockPosition(editor)).toEqual({ x: 154, y: START.y });
+    editor.undo();
+    expect(startingBlockPosition(editor)).toEqual(START);
+  });
+});
+
 describe("nudging a text block", () => {
   it("moves the selected block 1 px with a small step and 10 px with a large one", () => {
     const editor = editorWithBlockSelected();
@@ -137,6 +185,22 @@ describe("nudging a text block", () => {
     expect(editor.getWallpaper().background).toBe("#000000");
     editor.undo();
     expect(startingBlockPosition(editor)).toEqual(START);
+    expect(editor.getView().canUndo).toBe(false);
+  });
+
+  it("keeps a colour still being previewed in the picker out of the run: they're separate steps", () => {
+    const editor = editorWithBlockSelected();
+    editor.setBackground("#1E3A5F", { preview: true });
+
+    editor.nudge("right");
+    editor.nudge("right");
+    editor.setBackground("#1E3A5F");
+
+    editor.undo();
+    expect(startingBlockPosition(editor)).toEqual(START);
+    expect(editor.getWallpaper().background).toBe("#1E3A5F");
+    editor.undo();
+    expect(editor.getWallpaper().background).toBe("#000000");
     expect(editor.getView().canUndo).toBe(false);
   });
 

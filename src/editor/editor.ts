@@ -30,9 +30,15 @@ export interface ChangeOptions {
 export type NudgeDirection = "left" | "right" | "up" | "down";
 
 /** How far one nudge moves a block, in wallpaper px: arrow keys take a small step, Shift+arrow a large one. */
-export const NUDGE_STEPS = { small: 1, large: 10 } as const;
+const NUDGE_STEPS = { small: 1, large: 10 } as const;
 
 export type NudgeStep = keyof typeof NUDGE_STEPS;
+
+/**
+ * A gesture in progress: a drag (the block, where the pointer grabbed it and
+ * where the block started) or a run of nudges. Either is one undo step.
+ */
+type Gesture = { kind: "move"; id: string; grab: Point; start: Point } | { kind: "nudge" };
 
 /** A text block's id with its box, measured from its text. */
 export interface BlockBox {
@@ -94,7 +100,8 @@ export interface Editor {
   /**
    * Starts dragging the selected block, grabbed at `point` (in wallpaper px).
    * Does nothing when nothing is selected. The block follows each
-   * `updateMove`, and `endMove` makes the whole drag one undo step.
+   * `updateMove`, and `endMove`, or any other command, makes the whole drag
+   * one undo step.
    */
   beginMove(point: Point): void;
   /** Moves the dragged block by how far the pointer has moved since `beginMove`, in whole wallpaper px. */
@@ -103,7 +110,8 @@ export interface Editor {
   endMove(): void;
   /**
    * Moves the selected block one step in `direction`. Does nothing when nothing
-   * is selected. A run of consecutive nudges is one undo step.
+   * is selected. A run of consecutive nudges is one undo step, which any other
+   * command ends.
    */
   nudge(direction: NudgeDirection, step?: NudgeStep): void;
   /**
@@ -187,32 +195,44 @@ export function createEditor({ measurer }: EditorOptions): Editor {
   const history = createHistory(startingWallpaper(measurer, settings), sameWallpaper);
   /** The selected block's id. Session-only: never part of the wallpaper or the undo history. */
   let selectedId: string | null = null;
-  /** The drag in progress: the block, where the pointer grabbed it, and where the block started. */
-  let move: { id: string; grab: Point; start: Point } | null = null;
+  /** The open gesture, whose changes are previewed until it ends as one undo step. */
+  let gesture: Gesture | null = null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
 
-  /** Whether a run of nudges is open: they're previewed, and become one undo step when it ends. */
-  let nudging = false;
+  /** Opens a gesture. Whatever was showing is recorded first, so it never joins the gesture's step. */
+  function startGesture(next: Gesture) {
+    history.commit(history.present);
+    gesture = next;
+  }
 
-  /** Every command but a nudge ends an open run of nudges, recording the run as one undo step. */
-  function endNudges() {
-    if (!nudging) return;
-    nudging = false;
+  /**
+   * Ends the open gesture, recording it as one undo step. Every command does
+   * this first, except one that carries the gesture on.
+   */
+  function endGesture() {
+    if (!gesture) return;
+    gesture = null;
     history.commit(history.present);
   }
 
-  /** Every wallpaper change goes through here, so each one lands in the undo history. */
+  /** Every wallpaper change outside a gesture goes through here, so each one lands in the undo history. */
   function change(next: Wallpaper, { preview = false }: ChangeOptions = {}) {
-    endNudges();
+    endGesture();
     if (preview) history.preview(next);
     else history.commit(next);
     changed();
   }
 
+  /** Shows a step of the open gesture; the gesture is recorded when it ends. */
+  function continueGesture(next: Wallpaper) {
+    history.preview(next);
+    changed();
+  }
+
   /** Undoes or redoes. Landing on another resolution fits the view to the screen, as changing it does. */
   function stepThroughHistory(move: () => void) {
-    endNudges();
+    endGesture();
     const { resolution } = history.present;
     move();
     if (!sameResolution(resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
@@ -248,7 +268,7 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       };
     },
     setSettings: (changes) => {
-      endNudges();
+      endGesture();
       const next = { ...settings, ...changes };
       // A column count that isn't a number can't make a grid, so it's ignored.
       next.gridColumns = Number.isNaN(next.gridColumns) ? settings.gridColumns : clampGridColumns(next.gridColumns);
@@ -269,36 +289,37 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       change(refit(history.present, resolution, { safeMargin: settings.safeMargin, measurer }));
     },
     selectAt: (point) => {
-      endNudges();
+      endGesture();
       // Later blocks draw on top, so the last one under the point wins.
       selectedId = blockBoxes().findLast(({ box }) => contains(box, point))?.id ?? null;
       changed();
     },
     deselect: () => {
-      endNudges();
+      endGesture();
       selectedId = null;
       changed();
     },
     beginMove: (point) => {
-      endNudges();
+      endGesture();
       const block = selectedBlock();
-      move = block ? { id: block.id, grab: point, start: { x: block.x, y: block.y } } : null;
+      if (block) startGesture({ kind: "move", id: block.id, grab: point, start: { x: block.x, y: block.y } });
     },
     updateMove: (point) => {
-      if (!move) return;
-      const { id, grab, start } = move;
+      if (gesture?.kind !== "move") return;
+      const { id, grab, start } = gesture;
       // Whole wallpaper pixels, like nudges, so positions stay tidy at any zoom.
       const offset = { x: Math.round(point.x - grab.x), y: Math.round(point.y - grab.y) };
-      change(withPosition(history.present, id, { x: start.x + offset.x, y: start.y + offset.y }), { preview: true });
+      continueGesture(withPosition(history.present, id, { x: start.x + offset.x, y: start.y + offset.y }));
     },
     endMove: () => {
-      if (!move) return;
-      move = null;
-      change(history.present);
+      if (gesture?.kind !== "move") return;
+      endGesture();
+      changed();
     },
     nudge: (direction, step = "small") => {
       const block = selectedBlock();
       if (!block) return;
+      if (gesture?.kind !== "nudge") startGesture({ kind: "nudge" });
       const distance = NUDGE_STEPS[step];
       const { x, y } = block;
       const position = {
@@ -307,17 +328,17 @@ export function createEditor({ measurer }: EditorOptions): Editor {
         up: { x, y: y - distance },
         down: { x, y: y + distance },
       }[direction];
-      history.preview(withPosition(history.present, block.id, position));
-      nudging = true;
-      changed();
+      continueGesture(withPosition(history.present, block.id, position));
     },
     setPosition: (position) => {
       const block = selectedBlock();
       if (!block) return;
       // A coordinate that isn't a finite number (an emptied field) is ignored.
-      const typed = (value: number | undefined, current: number) =>
+      const finiteOr = (current: number, value: number | undefined) =>
         value !== undefined && Number.isFinite(value) ? value : current;
-      change(withPosition(history.present, block.id, { x: typed(position.x, block.x), y: typed(position.y, block.y) }));
+      change(
+        withPosition(history.present, block.id, { x: finiteOr(block.x, position.x), y: finiteOr(block.y, position.y) }),
+      );
     },
     undo: () => stepThroughHistory(() => history.undo()),
     redo: () => stepThroughHistory(() => history.redo()),

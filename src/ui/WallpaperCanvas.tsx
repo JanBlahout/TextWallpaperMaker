@@ -62,23 +62,17 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
 
   const { resolution } = wallpaper;
   useEffect(() => {
-    const canvas = guidesRef.current;
-    if (!canvas || !size || size.width === 0 || size.height === 0) return;
-    const ctx = resizeCanvas(canvas, size);
-    if (!ctx) return;
-    const dpr = size.devicePixelRatio;
-    drawGuides(ctx, { resolution, view, visibility: settings }, canvasTransform(resolution, canvas, dpr), dpr);
+    drawLayer(guidesRef.current, size, resolution, (ctx, transform, dpr) =>
+      drawGuides(ctx, { resolution, view, visibility: settings }, transform, dpr),
+    );
   }, [resolution, view, settings, size]);
 
-  const selection = view.selection?.box ?? null;
+  const selectionBox = view.selection?.box ?? null;
   useEffect(() => {
-    const canvas = overlayRef.current;
-    if (!canvas || !size || size.width === 0 || size.height === 0) return;
-    const ctx = resizeCanvas(canvas, size);
-    if (!ctx) return;
-    const dpr = size.devicePixelRatio;
-    drawOverlay(ctx, { resolution, selection }, canvasTransform(resolution, canvas, dpr), dpr);
-  }, [resolution, selection, size]);
+    drawLayer(overlayRef.current, size, resolution, (ctx, transform, dpr) =>
+      drawOverlay(ctx, { resolution, selection: selectionBox }, transform, dpr),
+    );
+  }, [resolution, selectionBox, size]);
 
   /** The wallpaper point under the pointer, through the same transform the layers are drawn with. */
   const wallpaperPoint = (event: PointerEvent): Point | null => {
@@ -146,6 +140,19 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
       />
     </div>
   );
+}
+
+/** Sizes a layer above the wallpaper to the canvas and draws it through the transform every layer shares. */
+function drawLayer(
+  canvas: HTMLCanvasElement | null,
+  size: CanvasSize | null,
+  resolution: Resolution,
+  draw: (ctx: CanvasRenderingContext2D, transform: RenderTransform, devicePixelRatio: number) => void,
+) {
+  if (!canvas || !size || size.width === 0 || size.height === 0) return;
+  const ctx = resizeCanvas(canvas, size);
+  if (!ctx) return;
+  draw(ctx, canvasTransform(resolution, canvas, size.devicePixelRatio), size.devicePixelRatio);
 }
 
 /** Sizes a canvas to the CSS size × device pixel ratio. Resizing clears it and resets its context. */
