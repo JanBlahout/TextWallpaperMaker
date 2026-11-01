@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEditor } from "./index";
+import { createEditor, type TextBlock, type Wallpaper } from "./index";
 import { fakeTextMeasurer } from "./testing/fakeTextMeasurer";
 
 /** The starting block's box is from (54, 709.2) to (630, 1026) with the fake measurer; see editor.test.ts. */
@@ -58,6 +58,17 @@ describe("duplicating a text block", () => {
     expect(editor.getWallpaper()).toEqual(duplicated);
   });
 
+  it("forgets the selected copy once undo takes it away, so redo brings it back unselected", () => {
+    const editor = editorWithBlockSelected();
+    editor.duplicate();
+
+    editor.undo();
+    editor.redo();
+
+    expect(editor.getWallpaper().blocks).toHaveLength(2);
+    expect(editor.getView().selection).toBeNull();
+  });
+
   it("ends a run of nudges, so the nudges and the duplicate are one undo step each", () => {
     const editor = editorWithBlockSelected();
 
@@ -111,7 +122,7 @@ const STYLED_BLOCK = {
   uppercase: false,
   x: 100,
   y: 200,
-};
+} satisfies TextBlock;
 
 /** Inside the styled block's box, which with the fake measurer is from (100, 200) to (270, 350). */
 const INSIDE_STYLED_BLOCK = { x: 150, y: 250 };
@@ -119,7 +130,7 @@ const INSIDE_STYLED_BLOCK = { x: 150, y: 250 };
 /** An editor on a portrait 1170 × 2532 wallpaper with the styled block, and another block drawn above it. */
 function editorWithStyledBlockUnderAnother() {
   const editor = createEditor({ measurer: fakeTextMeasurer });
-  const saved = JSON.parse(editor.serialise());
+  const saved: { wallpaper: Wallpaper } = JSON.parse(editor.serialise());
   saved.wallpaper.resolution = { width: 1170, height: 2532 };
   saved.wallpaper.blocks = [STYLED_BLOCK, { ...saved.wallpaper.blocks[0], id: "on-top", x: 500, y: 1500 }];
   editor.load(JSON.stringify(saved));

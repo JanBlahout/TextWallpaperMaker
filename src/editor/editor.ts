@@ -254,6 +254,8 @@ export function createEditor({ measurer }: EditorOptions): Editor {
     endGesture();
     const { resolution } = history.present;
     move();
+    // A selected block the step took away stays forgotten, so its id can't select a later block.
+    if (!selectedBlock()) selectedId = null;
     if (!sameResolution(resolution, history.present.resolution)) settings = { ...settings, zoom: "fit" };
     changed();
   }

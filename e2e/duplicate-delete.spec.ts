@@ -37,12 +37,18 @@ test("Cmd/Ctrl+D duplicates the selected block without bookmarking the page, and
   });
 });
 
-test("Backspace and Delete in an inspector field edit the field and never delete the block", async ({ page }) => {
+test("in an inspector field, Backspace and Delete edit the field, and Cmd/Ctrl+D neither duplicates nor bookmarks", async ({
+  page,
+}) => {
   await page.goto("/");
   const canvas = wallpaperCanvas(page);
   const x = inspector(page).getByRole("spinbutton", { name: "X", exact: true });
   const original = await waitForTextBounds(canvas);
   await clickBlock(page);
+
+  await x.focus();
+  expect(await pressAndCheckCancelled(page, "ControlOrMeta+d")).toBe(true);
+  await expect(x).toHaveValue("54");
 
   await x.selectText();
   await x.press("Backspace");

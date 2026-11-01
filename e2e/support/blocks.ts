@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { WALLPAPER_CANVAS } from "./canvas";
 
 /** Device-pixel bounds of the light (text) pixels on a canvas. */
 export interface Bounds {
@@ -9,7 +10,7 @@ export interface Bounds {
 }
 
 export function wallpaperCanvas(page: Page) {
-  return page.locator('canvas[aria-label="Wallpaper canvas"]');
+  return page.locator(WALLPAPER_CANVAS);
 }
 
 /** The right sidebar, where the selected block's position is shown. */
