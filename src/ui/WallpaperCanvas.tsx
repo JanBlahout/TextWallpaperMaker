@@ -1,16 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type RefObject } from "react";
-import type { Editor, EditorSettings, EditorView, Point, Resolution, Wallpaper } from "@/editor";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type RefObject } from "react";
+import {
+  toScreen,
+  toWallpaper,
+  viewportOf,
+  type Editor,
+  type EditorSettings,
+  type EditorView,
+  type Point,
+  type Size,
+  type Viewport,
+  type Wallpaper,
+} from "@/editor";
 import { loadFontsFor } from "@/render/fontLoading";
 import { renderWallpaper, type RenderTransform } from "@/render/renderWallpaper";
 import { drawGuides } from "./drawGuides";
 import { drawOverlay } from "./drawOverlay";
-import { fitWallpaper, type Size } from "./fitWallpaper";
 import { InPlaceTextEditor, type ScreenPoint } from "./InPlaceTextEditor";
-
-/** Space kept around the fitted wallpaper, in CSS px. */
-const FIT_PADDING = 40;
+import { screenPointOf, useCanvasNavigation } from "./useCanvasNavigation";
+import { ZoomControls } from "./ZoomControls";
 
 interface CanvasSize extends Size {
   devicePixelRatio: number;
@@ -25,13 +34,14 @@ interface WallpaperCanvasProps {
 
 /**
  * The on-screen canvas: as big as the space it sits in (not the wallpaper),
- * drawing the wallpaper through the renderer fitted to that space, at the
- * device pixel ratio so it stays sharp on high-DPI screens. The guides and
+ * drawing the part of the wallpaper in view through the renderer at the
+ * current zoom × the device pixel ratio, so it stays sharp on high-DPI screens
+ * and within browser canvas limits however far it's zoomed in. The guides and
  * the overlay (overflow wash and selection box) are drawn on separate layers
  * above it, which export never sees (ADR 0003). Pressing on a block selects
  * it and dragging moves it, snapping unless Ctrl is held; pressing on empty
  * canvas deselects. Double-clicking a block opens its text for editing in
- * place, in a text field on top.
+ * place, in a text field on top. Zooming and panning are in `useCanvasNavigation`.
  */
 export function WallpaperCanvas({ editor, wallpaper, view, settings }: WallpaperCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,10 +54,19 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   const lastMove = useRef<{ point: Point; viewScale?: number } | null>(null);
   /** Where the block being edited was double-clicked, for the text field to open there. */
   const [doubleClick, setDoubleClick] = useState<{ id: string; at: ScreenPoint } | null>(null);
+  const navigation = useCanvasNavigation(editor, containerRef, size);
+
+  const { resolution } = wallpaper;
+  const { zoom, pan } = settings;
+  /** How the canvas shows the wallpaper: every layer, the text field and all pointer input go through it. */
+  const viewport = useMemo(
+    () => (size && size.width > 0 && size.height > 0 ? viewportOf(resolution, { zoom, pan }, size) : null),
+    [resolution, zoom, pan, size],
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !size || size.width === 0 || size.height === 0) return;
+    if (!canvas || !size || !viewport) return;
 
     let cancelled = false;
     loadFontsFor(wallpaper.blocks).then(
@@ -58,47 +77,37 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
         // the frame can be drawn, so the old frame stays up until then.
         const ctx = resizeCanvas(canvas, size);
         if (!ctx) return;
-        renderWallpaper(ctx, wallpaper, canvasTransform(wallpaper.resolution, canvas, dpr));
+        renderWallpaper(ctx, wallpaper, canvasTransform(viewport, dpr));
       },
       (error: unknown) => console.error(error),
     );
     return () => {
       cancelled = true;
     };
-  }, [wallpaper, size]);
+  }, [wallpaper, viewport, size]);
 
-  const { resolution } = wallpaper;
   useEffect(() => {
-    drawLayer(guidesRef.current, size, resolution, (ctx, transform, dpr) =>
+    drawLayer(guidesRef.current, size, viewport, (ctx, transform, dpr) =>
       drawGuides(ctx, { resolution, view, visibility: settings }, transform, dpr),
     );
-  }, [resolution, view, settings, size]);
+  }, [resolution, view, settings, viewport, size]);
 
   const selectionBox = view.selection?.box ?? null;
   useEffect(() => {
-    drawLayer(overlayRef.current, size, resolution, (ctx, transform, dpr) =>
+    drawLayer(overlayRef.current, size, viewport, (ctx, transform, dpr) =>
       drawOverlay(ctx, { resolution, selection: selectionBox }, transform, dpr),
     );
-  }, [resolution, selectionBox, size]);
+  }, [resolution, selectionBox, viewport, size]);
 
-  /** The wallpaper point under the pointer, through the same transform the layers are drawn with. */
-  const wallpaperPoint = (event: PointerEvent): Point | null => {
-    const canvas = overlayRef.current;
-    if (!canvas || !size) return null;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
-    // CSS px from the canvas's corner, to canvas px, to wallpaper px.
-    const canvasX = (event.clientX - rect.left) * (canvas.width / rect.width);
-    const canvasY = (event.clientY - rect.top) * (canvas.height / rect.height);
-    const { scale, offsetX, offsetY } = canvasTransform(resolution, canvas, size.devicePixelRatio);
-    return { x: (canvasX - offsetX) / scale, y: (canvasY - offsetY) / scale };
+  /** The wallpaper point under the pointer, through the same viewport the layers are drawn with. */
+  const wallpaperPoint = (event: PointerEvent<HTMLDivElement>): Point | null => {
+    const screen = viewport && screenPointOf(event.currentTarget, viewport.canvas, event);
+    return viewport && screen && toWallpaper(viewport, screen);
   };
-
-  /** Screen (CSS) px per wallpaper px, so a drag snaps within the same 6 screen px at any zoom. */
-  const viewScale = () => (size ? cssTransform(resolution, size).scale : undefined);
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    if (navigation.beginPan(event)) return;
     const point = wallpaperPoint(event);
     if (!point) return;
     // Finish any inspector edit first, so it lands before the drag starts.
@@ -110,16 +119,17 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (!dragging.current) return;
+    if (navigation.updatePan(event) || !dragging.current) return;
     const point = wallpaperPoint(event);
     if (!point) return;
-    const scale = viewScale();
-    lastMove.current = { point, viewScale: scale };
-    editor.updateMove(point, { viewScale: scale, bypassSnapping: event.ctrlKey });
+    // Screen px per wallpaper px, so a drag snaps within the same 6 screen px at any zoom.
+    const viewScale = viewport?.zoom;
+    lastMove.current = { point, viewScale };
+    editor.updateMove(point, { viewScale, bypassSnapping: event.ctrlKey });
   };
 
   const endDrag = () => {
-    if (!dragging.current) return;
+    if (navigation.endPan() || !dragging.current) return;
     dragging.current = false;
     lastMove.current = null;
     editor.endMove();
@@ -160,7 +170,7 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
       // On macOS, Ctrl held as the button goes down would open a context menu and break off the drag.
       onContextMenu={(event) => event.preventDefault()}
       onDoubleClick={onDoubleClick}
-      className="relative h-full w-full touch-none overflow-hidden select-none"
+      className={`relative h-full w-full touch-none overflow-hidden select-none ${navigation.cursor}`}
     >
       <canvas
         ref={canvasRef}
@@ -180,16 +190,17 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
         data-testid="overlay"
         className="pointer-events-none absolute inset-0 h-full w-full"
       />
-      {editing && editingBlock && size && (
+      {editing && editingBlock && viewport && (
         <InPlaceTextEditor
           key={editing.id}
           editor={editor}
           block={editingBlock}
           box={editing.box}
-          transform={cssTransform(resolution, size)}
+          transform={screenTransform(viewport)}
           openAt={doubleClick?.id === editing.id ? doubleClick.at : null}
         />
       )}
+      {viewport && <ZoomControls editor={editor} viewport={viewport} />}
     </div>
   );
 }
@@ -198,13 +209,13 @@ export function WallpaperCanvas({ editor, wallpaper, view, settings }: Wallpaper
 function drawLayer(
   canvas: HTMLCanvasElement | null,
   size: CanvasSize | null,
-  resolution: Resolution,
+  viewport: Viewport | null,
   draw: (ctx: CanvasRenderingContext2D, transform: RenderTransform, devicePixelRatio: number) => void,
 ) {
-  if (!canvas || !size || size.width === 0 || size.height === 0) return;
+  if (!canvas || !size || !viewport) return;
   const ctx = resizeCanvas(canvas, size);
   if (!ctx) return;
-  draw(ctx, canvasTransform(resolution, canvas, size.devicePixelRatio), size.devicePixelRatio);
+  draw(ctx, canvasTransform(viewport, size.devicePixelRatio), size.devicePixelRatio);
 }
 
 /** Sizes a canvas to the CSS size × device pixel ratio. Resizing clears it and resets its context. */
@@ -220,19 +231,27 @@ function canvasPixelSize({ width, height, devicePixelRatio }: CanvasSize): Size 
   return { width: Math.round(width * devicePixelRatio), height: Math.round(height * devicePixelRatio) };
 }
 
-/** Wallpaper px to canvas px, shared by every layer so the guides sit exactly on the wallpaper. */
-function canvasTransform(resolution: Resolution, canvas: Size, devicePixelRatio: number): RenderTransform {
-  return fitWallpaper(resolution, canvas, FIT_PADDING * devicePixelRatio);
+/**
+ * Wallpaper px to screen (CSS) px over the canvas: the viewport's
+ * wallpaper-to-screen conversion as a transform, for page elements laid on
+ * the canvas, such as the in-place text field.
+ */
+function screenTransform(viewport: Viewport): RenderTransform {
+  const origin = toScreen(viewport, { x: 0, y: 0 });
+  return { scale: viewport.zoom, offsetX: origin.x, offsetY: origin.y };
 }
 
-/** Wallpaper px to CSS px over the canvas, for page elements laid on it: the layers' transform, in CSS px. */
-function cssTransform(resolution: Resolution, size: CanvasSize): RenderTransform {
-  const { devicePixelRatio: dpr } = size;
-  const { scale, offsetX, offsetY } = canvasTransform(resolution, canvasPixelSize(size), dpr);
-  return { scale: scale / dpr, offsetX: offsetX / dpr, offsetY: offsetY / dpr };
+/** Wallpaper px to canvas px: the screen transform × the device pixel ratio, shared by every layer so the guides sit exactly on the wallpaper. */
+function canvasTransform(viewport: Viewport, devicePixelRatio: number): RenderTransform {
+  const { scale, offsetX, offsetY } = screenTransform(viewport);
+  return { scale: scale * devicePixelRatio, offsetX: offsetX * devicePixelRatio, offsetY: offsetY * devicePixelRatio };
 }
 
-/** Tracks the CSS size of the element the canvas fills, and the device pixel ratio. */
+/**
+ * Tracks the size of the element the canvas fills, and the device pixel ratio.
+ * The size is rounded to whole device pixels, as the canvas's pixels are, so
+ * screen px are exactly canvas px ÷ the device pixel ratio.
+ */
 function useCanvasSize(ref: RefObject<HTMLElement | null>): CanvasSize | null {
   const [size, setSize] = useState<CanvasSize | null>(null);
 
@@ -242,8 +261,10 @@ function useCanvasSize(ref: RefObject<HTMLElement | null>): CanvasSize | null {
 
     let ratioQuery: MediaQueryList | undefined;
     const measure = () => {
-      const { width, height } = element.getBoundingClientRect();
       const devicePixelRatio = window.devicePixelRatio || 1;
+      const rect = element.getBoundingClientRect();
+      const width = Math.round(rect.width * devicePixelRatio) / devicePixelRatio;
+      const height = Math.round(rect.height * devicePixelRatio) / devicePixelRatio;
       setSize((previous) =>
         previous?.width === width && previous.height === height && previous.devicePixelRatio === devicePixelRatio
           ? previous

@@ -39,6 +39,9 @@ _Avoid_: Default wallpaper, template
 The editor's on-screen, zoomable view of the wallpaper; never exported.
 _Avoid_: Using "canvas" to mean the wallpaper or its resolution
 
+**Zoom**:
+How large the canvas shows the wallpaper: at 100% one wallpaper pixel takes up one screen (CSS) pixel, and Fit shows the whole wallpaper. Zooming and panning never change the wallpaper or its export.
+
 **Safe margin**:
 The equal inset from every edge of the wallpaper, expressed as a percentage of its shorter side.
 _Avoid_: Padding, bleed

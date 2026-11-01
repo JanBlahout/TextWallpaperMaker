@@ -20,3 +20,4 @@ export { blockLines, letterSpacingPx, type TextMeasurement, type TextMeasurer } 
 export { LINE_ALIGNS } from "./model";
 export { GRID_COLUMNS_RANGE, SAFE_MARGINS } from "./model";
 export type * from "./model";
+export { panBy, toScreen, toWallpaper, viewportOf, zoomAt, type Size, type Viewport, type ViewSettings } from "./viewport";

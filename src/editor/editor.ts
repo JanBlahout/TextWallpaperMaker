@@ -96,7 +96,11 @@ export interface Editor {
   getWallpaper(): Wallpaper;
   getSettings(): EditorSettings;
   getView(): EditorView;
-  /** Changes editor settings. They aren't part of the wallpaper, so this is never an undo step. */
+  /**
+   * Changes editor settings. They aren't part of the wallpaper, so this is never
+   * an undo step, and zooming or panning alone doesn't end a drag, a run of
+   * nudges or a text edit.
+   */
   setSettings(changes: Partial<EditorSettings>): void;
   /**
    * Sets the wallpaper's background colour from a hex colour as typed or picked
@@ -385,10 +389,14 @@ export function createEditor({ measurer }: EditorOptions): Editor {
       };
     },
     setSettings: (changes) => {
-      endGesture();
+      // Zooming and panning only change how the wallpaper is shown, so a drag or a text edit carries on through them.
+      if (Object.keys(changes).some((key) => key !== "zoom" && key !== "pan")) endGesture();
       const next = { ...settings, ...changes };
       // A column count that isn't a number can't make a grid, so it's ignored.
       next.gridColumns = Number.isNaN(next.gridColumns) ? settings.gridColumns : clampGridColumns(next.gridColumns);
+      // A zoom or pan that isn't a finite number couldn't be saved, so it's ignored too.
+      if (next.zoom !== "fit" && !(Number.isFinite(next.zoom) && next.zoom > 0)) next.zoom = settings.zoom;
+      if (!Number.isFinite(next.pan.x) || !Number.isFinite(next.pan.y)) next.pan = settings.pan;
       settings = next;
       changed();
     },
