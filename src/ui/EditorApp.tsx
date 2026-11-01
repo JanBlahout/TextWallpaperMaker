@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import { GALLERY_PATH } from "@/gallery/quoteWallpapers";
 import { AddTextButton } from "./AddTextButton";
 import { BackgroundControls } from "./BackgroundControls";
 import { ExportButton } from "./ExportButton";
@@ -42,6 +43,7 @@ function LeftSidebar() {
     <aside className="flex min-h-0 flex-col border-r border-neutral-800 bg-neutral-900">
       <header className="border-b border-neutral-800 px-4 py-3">
         <AppTitle />
+        <GalleryLink className="mt-1 block text-[11px] text-neutral-500 hover:text-neutral-300" />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {editor && wallpaper && <ResolutionControls editor={editor} resolution={wallpaper.resolution} />}
@@ -74,8 +76,21 @@ function CanvasArea() {
   return <WallpaperCanvas editor={editor} wallpaper={wallpaper} view={view} settings={settings} />;
 }
 
-function AppTitle() {
-  return <h1 className="text-xs font-semibold tracking-wide text-neutral-100 uppercase">Text Wallpaper Maker</h1>;
+/** The page's one h1 is the desktop editor's; the phone message shows the same title as plain text. */
+function AppTitle({ as: Tag = "h1" }: { as?: "h1" | "p" }) {
+  return <Tag className="text-xs font-semibold tracking-wide text-neutral-100 uppercase">Text Wallpaper Maker</Tag>;
+}
+
+/**
+ * A plain link, not a client-side one, so leaving the editor is a real page
+ * exit and autosave writes any pending change straight away.
+ */
+function GalleryLink({ className }: { className: string }) {
+  return (
+    <a href={GALLERY_PATH} className={className}>
+      Quote wallpaper gallery →
+    </a>
+  );
 }
 
 function CenteredNote({ children }: { children: ReactNode }) {
@@ -86,10 +101,11 @@ function LargerScreenMessage() {
   return (
     <div className="flex h-dvh items-center justify-center bg-neutral-950 p-8 text-center lg:hidden">
       <div className="max-w-xs">
-        <AppTitle />
+        <AppTitle as="p" />
         <p className="mt-3 text-sm text-neutral-400">
           Please use a larger screen. The editor needs a desktop-sized window to design wallpapers.
         </p>
+        <GalleryLink className="mt-6 inline-block text-sm text-neutral-200 underline underline-offset-4" />
       </div>
     </div>
   );
