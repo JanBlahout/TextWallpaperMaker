@@ -30,7 +30,7 @@ export function ExportButton({ wallpaper }: { wallpaper: Wallpaper | null }) {
         type="button"
         onClick={onExport}
         disabled={!wallpaper || exporting}
-        className="flex w-full flex-col items-start rounded-md bg-neutral-100 px-3 py-2 text-left text-neutral-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex w-full flex-col items-start rounded-md bg-neutral-100 px-3 py-2 text-left text-neutral-950 transition-colors enabled:hover:bg-neutral-300 enabled:active:bg-neutral-400 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <span className="text-sm font-medium">Export Wallpaper</span>
         <span className="font-mono text-[11px] text-neutral-500 tabular-nums">{resolutionLabel}</span>

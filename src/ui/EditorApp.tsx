@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { GALLERY_PATH } from "@/gallery/quoteWallpapers";
+import { GALLERY_PATH, QUOTE_WALLPAPERS, THUMBNAIL_SIZE, thumbnailPath } from "@/gallery/quoteWallpapers";
 import { AddTextButton } from "./AddTextButton";
 import { BackgroundControls } from "./BackgroundControls";
 import { ExportButton } from "./ExportButton";
@@ -43,7 +43,7 @@ function LeftSidebar() {
     <aside className="flex min-h-0 flex-col border-r border-neutral-800 bg-neutral-900">
       <header className="border-b border-neutral-800 px-4 py-3">
         <AppTitle />
-        <GalleryLink className="mt-1 block text-[11px] text-neutral-500 hover:text-neutral-300" />
+        <GalleryCard />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {editor && wallpaper && <ResolutionControls editor={editor} resolution={wallpaper.resolution} />}
@@ -85,11 +85,38 @@ function AppTitle({ as: Tag = "h1" }: { as?: "h1" | "p" }) {
  * A plain link, not a client-side one, so leaving the editor is a real page
  * exit and autosave writes any pending change straight away.
  */
-function GalleryLink({ className }: { className: string }) {
+function GalleryLink({ className, children = "Quote wallpaper gallery →" }: { className: string; children?: ReactNode }) {
   return (
     <a href={GALLERY_PATH} className={className}>
-      Quote wallpaper gallery →
+      {children}
     </a>
+  );
+}
+
+/** The gallery's first few wallpapers, shown small so the link reads as a gallery at a glance. */
+const CARD_WALLPAPERS = QUOTE_WALLPAPERS.slice(0, 3);
+
+/** The way into the gallery, at the top of the sidebar so it's always in view. */
+function GalleryCard() {
+  return (
+    <GalleryLink className="group mt-3 block rounded-md border border-neutral-700 p-2 transition-colors hover:border-neutral-500 hover:bg-neutral-800">
+      <span className="grid grid-cols-3 gap-1">
+        {CARD_WALLPAPERS.map((wallpaper) => (
+          <img
+            key={wallpaper.slug}
+            src={thumbnailPath(wallpaper)}
+            width={THUMBNAIL_SIZE.width}
+            height={THUMBNAIL_SIZE.height}
+            alt=""
+            className="h-auto w-full rounded-sm bg-black ring-1 ring-neutral-800"
+          />
+        ))}
+      </span>
+      <span className="mt-2 block text-xs font-medium text-neutral-100">
+        Quote wallpaper gallery <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
+      </span>
+      <span className="block text-[11px] text-neutral-500">{QUOTE_WALLPAPERS.length} free wallpapers to download</span>
+    </GalleryLink>
   );
 }
 

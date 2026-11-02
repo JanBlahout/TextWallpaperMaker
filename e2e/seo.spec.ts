@@ -68,6 +68,22 @@ test("the editor links to the quote wallpaper gallery, which offers every wallpa
   expect(graph[0].image).toHaveLength(16);
 });
 
+test("the gallery link is in view with its thumbnails at the top of the sidebar, even in the smallest desktop window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 640 });
+  await page.goto("/");
+
+  const link = page.getByRole("link", { name: /Quote wallpaper gallery/ });
+  await expect(link).toBeInViewport({ ratio: 1 });
+  await expect(link).toContainText("16 free wallpapers");
+  const thumbnails = link.locator("img");
+  await expect(thumbnails).toHaveCount(3);
+  for (const thumbnail of await thumbnails.all()) {
+    await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(160);
+  }
+});
+
 test("robots.txt points to the sitemap, which lists both pages and the gallery's wallpapers", async ({ request }) => {
   const robots = await (await request.get("/robots.txt")).text();
   expect(robots).toMatch(/^Sitemap: https?:\/\/.+\/sitemap\.xml$/m);
