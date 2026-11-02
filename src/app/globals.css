@@ -17,6 +17,17 @@
   color-scheme: dark;
 }
 
+/*
+ * Tailwind's preflight gives buttons the default arrow; every button that
+ * can be clicked shows the hand instead. A disabled one keeps its own cursor.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 body {
   background: var(--color-neutral-950);
 }

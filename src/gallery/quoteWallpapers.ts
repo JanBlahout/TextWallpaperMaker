@@ -2,7 +2,8 @@
  * The quote wallpaper gallery: ready-made wallpapers made with the editor, all
  * in the same layout (OCR A, #F2F2F2 on black, bottom-left on the 8% safe
  * margin) at the MacBook Pro 14″ preset. The PNGs live in public/wallpapers/,
- * with 1200 px previews in public/wallpapers/preview/.
+ * with 1200 px previews in public/wallpapers/preview/ and 160 px thumbnails,
+ * for the editor's link to the gallery, in public/wallpapers/thumb/.
  */
 
 export const GALLERY_PATH = "/jocko-willink-quotes-wallpapers";
@@ -13,8 +14,11 @@ export const WALLPAPER_SIZE = { width: 3024, height: 1964 } as const;
 /** The previews' size: the wallpaper scaled to 1200 px wide. */
 export const PREVIEW_SIZE = { width: 1200, height: 779 } as const;
 
+/** The thumbnails' size: the wallpaper scaled to 160 px wide. */
+export const THUMBNAIL_SIZE = { width: 160, height: 104 } as const;
+
 export interface QuoteWallpaper {
-  /** Names the files: public/wallpapers/<slug>-wallpaper.png and its preview. */
+  /** Names the files: public/wallpapers/<slug>-wallpaper.png, its preview and its thumbnail. */
   slug: string;
   /** The quote as written; the wallpaper shows it uppercase. */
   quote: string;
@@ -45,6 +49,10 @@ export function wallpaperPath({ slug }: QuoteWallpaper): string {
 
 export function previewPath({ slug }: QuoteWallpaper): string {
   return `/wallpapers/preview/${slug}-wallpaper.png`;
+}
+
+export function thumbnailPath({ slug }: QuoteWallpaper): string {
+  return `/wallpapers/thumb/${slug}-wallpaper.png`;
 }
 
 /** The file name a download is saved under. */
